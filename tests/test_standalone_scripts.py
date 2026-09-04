@@ -43,7 +43,7 @@ CONVERTER_CASES = [
 
 
 def test_converter_scripts_are_the_expected_standalone_files_without_package_imports():
-    converter_paths = sorted(SEMG_H5_DIRECTORY.glob("convert_*.py"))
+    converter_paths = sorted(SEMG_H5_DIRECTORY.glob("*.py"))
     assert [path.name for path in converter_paths] == CONVERTER_NAMES
 
     violations = []
@@ -62,6 +62,15 @@ def test_converter_scripts_are_the_expected_standalone_files_without_package_imp
     assert not violations, f"converter scripts must not import semg_h5 packages: {violations}"
 
 
+def _load_converter(converter_name):
+    script_path = (SEMG_H5_DIRECTORY / converter_name).resolve()
+    spec = importlib.util.spec_from_file_location(f"standalone_{script_path.stem}", script_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _source_path(request, fixture_name):
     if fixture_name in {"emg2pose_h5", "qwerty_h5"}:
         return request.getfixturevalue(fixture_name)
@@ -74,6 +83,55 @@ def test_converter_scripts_have_absolute_import_specs():
         spec = importlib.util.spec_from_file_location(f"standalone_{script_path.stem}", script_path)
         assert script_path.is_absolute()
         assert spec is not None and spec.origin == str(script_path)
+
+
+def test_emg2pose_preserves_pose_labels_and_source_split(tmp_path, emg2pose_h5):
+    converter = _load_converter("convert_emg2pose.py")
+    manifest_row = converter.convert_file(emg2pose_h5, tmp_path / "out", official_split="val")
+
+    with h5py.File(tmp_path / "out" / manifest_row["path"]) as h5:
+        assert h5.attrs["dataset_id"] == "emg2pose"
+        assert h5.attrs["task_id"] == "pose"
+        assert h5.attrs["official_split"] == "val"
+        assert h5["signal/emg"].shape == (4, 16)
+        assert h5["labels/joint_angles"].shape == (4, 3)
+        assert h5["labels/no_ik_failure"].shape == (4,)
+
+
+def test_emg2qwerty_emits_one_linked_record_per_wrist(tmp_path, qwerty_h5):
+    converter = _load_converter("convert_emg2qwerty.py")
+    rows = converter.convert_file(qwerty_h5, tmp_path / "out", official_split="train")
+
+    assert len(rows) == 2
+    assert {row["side"] for row in rows} == {"left", "right"}
+    assert rows[0]["pair_id"] == rows[1]["pair_id"]
+    for row in rows:
+        with h5py.File(tmp_path / "out" / row["path"]) as h5:
+            assert h5["signal/emg"].shape == (4, 16)
+            assert h5["labels/keystrokes"].shape[0] == 1
+            assert h5["labels/keystrokes"][0]["press_s"] == pytest.approx(0.0005)
+
+
+@pytest.mark.parametrize(
+    ("converter_name", "task_id", "label_path"),
+    [
+        ("convert_gni_discrete_gestures.py", "discrete_gesture", "labels/events"),
+        ("convert_gni_handwriting.py", "handwriting", "labels/prompts"),
+        ("convert_gni_wrist.py", "wrist_angle", "labels/targets/flexion_extension"),
+    ],
+)
+def test_gni_converter_preserves_16ch_stream_and_labels(
+    tmp_path, gni_h5_by_task, converter_name, task_id, label_path
+):
+    converter = _load_converter(converter_name)
+    row = converter.convert_file(
+        gni_h5_by_task[task_id], tmp_path / "out", official_split="test"
+    )
+
+    with h5py.File(tmp_path / "out" / row["path"]) as h5:
+        assert h5.attrs["task_id"] == task_id
+        assert h5["signal/emg"].shape == (4, 16)
+        assert label_path in h5
 
 
 @pytest.mark.parametrize(

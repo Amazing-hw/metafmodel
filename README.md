@@ -13,15 +13,14 @@ python -m pip install -r requirements.txt
 Run each command with the directory containing only the corresponding raw source H5 files.  Use a separate output root from the raw input directory.
 
 ```bash
-python -m semg_h5.convert_emg2pose --input-root RAW_EMG2POSE --output-root CANONICAL_META
-python -m semg_h5.convert_emg2qwerty --input-root RAW_EMG2QWERTY --output-root CANONICAL_META
-python -m semg_h5.convert_gni_discrete_gestures --input-root RAW_GNI_DISCRETE --output-root CANONICAL_META
-python -m semg_h5.convert_gni_handwriting --input-root RAW_GNI_HANDWRITING --output-root CANONICAL_META
-python -m semg_h5.convert_gni_wrist --input-root RAW_GNI_WRIST --output-root CANONICAL_META
-python -m semg_h5.validate --input CANONICAL_META
+python semg_h5\convert_emg2pose.py --input-root RAW_EMG2POSE --output-root CANONICAL_META
+python semg_h5\convert_emg2qwerty.py --input-root RAW_EMG2QWERTY --output-root CANONICAL_META
+python semg_h5\convert_gni_discrete_gestures.py --input-root RAW_GNI_DISCRETE --output-root CANONICAL_META
+python semg_h5\convert_gni_handwriting.py --input-root RAW_GNI_HANDWRITING --output-root CANONICAL_META
+python semg_h5\convert_gni_wrist.py --input-root RAW_GNI_WRIST --output-root CANONICAL_META
 ```
 
-When an official split CSV is available, supply `--splits-csv SPLITS.csv`; it must contain `split` and one of `path`, `source_file`, or `file`.  Its paths are relative to `--input-root` (or may be bare filenames).  `--split train` filters before conversion.  Do not generate random window-level splits: preserve official session/participant splits for downstream evaluation.  Existing output H5 files are refused by default; pass `--overwrite` only when intentionally regenerating them.
+Each standalone converter validates its source layout, the 16-channel signal shape, sample timestamps, and task-specific labels before writing output; no separate validator command is required.  When an official split CSV is available, supply `--splits-csv SPLITS.csv`; it must contain `split` and one of `path`, `source_file`, or `file`.  Its paths are relative to `--input-root` (or may be bare filenames).  `--split train` filters before conversion.  Do not generate random window-level splits: preserve official session/participant splits for downstream evaluation.  Existing output H5 files are refused by default; pass `--overwrite` only when intentionally regenerating them.
 
 ## Output contract
 
