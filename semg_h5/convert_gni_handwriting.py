@@ -2,8 +2,10 @@
 
 import argparse
 import csv
+from contextlib import contextmanager
 import hashlib
 import json
+import msvcrt
 import os
 from pathlib import Path
 import time
@@ -18,6 +20,42 @@ import pandas as pd
 SCHEMA_VERSION, SAMPLE_RATE_HZ = "1.0", 2000
 EXPECTED_SOURCE_TASK, DATASET_ID, TASK_ID = "handwriting", "gni_handwriting", "handwriting"
 MANIFEST_COLUMNS = ["path", "dataset_id", "task_id", "subject_id", "session_id", "side", "pair_id", "official_split", "sample_count", "duration_s", "source_file", "source_sha256"]
+
+
+@contextmanager
+def _replace_after_success(temporary: Path, destination: Path):
+    try:
+        yield
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    try:
+        os.replace(temporary, destination)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def _acquire_manifest_lock(path: Path):
+    lock = path.with_name(f".{path.name}.lock"); handle = lock.open("a+b")
+    try:
+        if lock.stat().st_size == 0: handle.write(b"\0"); handle.flush()
+        deadline = time.monotonic() + 10.0
+        while True:
+            try:
+                handle.seek(0); msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1); return handle
+            except OSError:
+                if time.monotonic() >= deadline: raise TimeoutError(f"Timed out waiting for manifest lock: {lock}")
+                time.sleep(0.05)
+    except BaseException:
+        handle.close(); raise
+
+
+def _release_manifest_lock(handle) -> None:
+    try:
+        handle.seek(0); msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    finally:
+        handle.close()
 
 
 def _decode(value: Any) -> Any:
@@ -90,7 +128,7 @@ def _write(path: str | Path, record: dict[str, Any], *, overwrite: bool) -> None
     if path.exists() and not overwrite: raise FileExistsError(f"Refusing to overwrite existing canonical record: {path}")
     path.parent.mkdir(parents=True, exist_ok=True); relative_time = record["time_s"].astype(np.float64, copy=False) - record["time_s"][0]
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    with h5py.File(temporary, "w") as h5:
+    with _replace_after_success(temporary, path), h5py.File(temporary, "w") as h5:
         h5.attrs.update({"schema_version": SCHEMA_VERSION, **{key: record[key] for key in ("dataset_id", "task_id", "subject_id", "session_id", "side", "pair_id", "official_split", "source_file")}, "sample_rate_hz": SAMPLE_RATE_HZ, "preprocessing_json": json.dumps(record["preprocessing"], default=_json_default, sort_keys=True)})
         signal = h5.create_group("signal"); signal.create_dataset("emg", data=record["emg"].astype(np.float32, copy=False), compression="gzip"); signal.create_dataset("time_s", data=relative_time)
         labels = h5.create_group("labels"); labels.create_dataset("source_json", data=json.dumps(record["labels"], default=_json_default, sort_keys=True), dtype=h5py.string_dtype("utf-8"))
@@ -101,7 +139,6 @@ def _write(path: str | Path, record: dict[str, Any], *, overwrite: bool) -> None
         if "stage" in record["labels"]: labels.create_dataset("stage", data=str(record["labels"]["stage"]), dtype=text)
         meta = h5.create_group("meta"); meta.create_dataset("source_json", data=json.dumps(record["source_meta"], default=_json_default, sort_keys=True), dtype=text)
         quality = meta.create_group("quality"); quality.create_dataset("sample_count", data=len(record["emg"])); quality.create_dataset("duration_s", data=float(relative_time[-1])); quality.create_dataset("nan_count", data=int(np.isnan(record["emg"]).sum())); quality.create_dataset("channel_rms", data=np.sqrt(np.mean(record["emg"].astype(np.float32, copy=False) ** 2, axis=0)))
-    os.replace(temporary, path)
 
 
 def _sha256(path: str | Path) -> str:
@@ -116,24 +153,17 @@ def _manifest(record: dict[str, Any], relative: Path) -> dict[str, Any]:
 
 
 def _append(path: str | Path, row: dict[str, Any]) -> None:
-    path = Path(path); path.parent.mkdir(parents=True, exist_ok=True); lock = path.with_name(f".{path.name}.lock"); deadline = time.monotonic() + 10.0
-    while True:
-        try:
-            descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY); os.close(descriptor); break
-        except FileExistsError:
-            if time.monotonic() >= deadline: raise TimeoutError(f"Timed out waiting for manifest lock: {lock}")
-            time.sleep(0.05)
+    path = Path(path); path.parent.mkdir(parents=True, exist_ok=True); lock_handle = _acquire_manifest_lock(path)
     try:
         rows = []
         if path.exists():
             with path.open(newline="", encoding="utf-8") as handle: rows = list(csv.DictReader(handle))
         rows = [item for item in rows if item["path"] != row["path"]] + [{column: row[column] for column in MANIFEST_COLUMNS}]; rows.sort(key=lambda item: item["path"])
         temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-        with temporary.open("w", newline="", encoding="utf-8") as handle:
+        with _replace_after_success(temporary, path), temporary.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=MANIFEST_COLUMNS); writer.writeheader(); writer.writerows(rows)
-        os.replace(temporary, path)
     finally:
-        lock.unlink(missing_ok=True)
+        _release_manifest_lock(lock_handle)
 
 
 def _splits(path: str | Path | None) -> dict[str, str]:

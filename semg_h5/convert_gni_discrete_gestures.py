@@ -2,9 +2,11 @@
 
 import argparse
 import csv
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
+import msvcrt
 import os
 from pathlib import Path
 import time
@@ -42,6 +44,50 @@ class CanonicalRecord:
     labels: dict[str, Any]
     source_meta: dict[str, Any]
     preprocessing: dict[str, Any]
+
+
+@contextmanager
+def _replace_after_success(temporary: Path, destination: Path):
+    try:
+        yield
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    try:
+        os.replace(temporary, destination)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def _acquire_manifest_lock(path: Path):
+    lock = path.with_name(f".{path.name}.lock")
+    handle = lock.open("a+b")
+    try:
+        if lock.stat().st_size == 0:
+            handle.write(b"\0")
+            handle.flush()
+        deadline = time.monotonic() + 10.0
+        while True:
+            try:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                return handle
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"Timed out waiting for manifest lock: {lock}")
+                time.sleep(0.05)
+    except BaseException:
+        handle.close()
+        raise
+
+
+def _release_manifest_lock(handle) -> None:
+    try:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    finally:
+        handle.close()
 
 
 def _json_default(value: Any) -> Any:
@@ -92,7 +138,7 @@ def _write_record(path: str | Path, record: CanonicalRecord, *, overwrite: bool 
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(f".{output.name}.{uuid.uuid4().hex}.tmp")
     relative_time_s = record.time_s.astype(np.float64, copy=False) - record.time_s[0]
-    with h5py.File(temporary, "w") as h5:
+    with _replace_after_success(temporary, output), h5py.File(temporary, "w") as h5:
         h5.attrs.update({
             "schema_version": SCHEMA_VERSION, "dataset_id": record.dataset_id,
             "task_id": record.task_id, "subject_id": record.subject_id,
@@ -116,7 +162,6 @@ def _write_record(path: str | Path, record: CanonicalRecord, *, overwrite: bool 
         quality.create_dataset("duration_s", data=float(relative_time_s[-1]))
         quality.create_dataset("nan_count", data=int(np.isnan(record.emg).sum()))
         quality.create_dataset("channel_rms", data=np.sqrt(np.mean(record.emg.astype(np.float32, copy=False) ** 2, axis=0)))
-    os.replace(temporary, output)
     return output
 
 
@@ -200,17 +245,7 @@ def _append_manifest_row(path: str | Path, row: dict[str, Any]) -> None:
     if missing:
         raise ValueError(f"Manifest row missing required fields: {sorted(missing)}")
     path.parent.mkdir(parents=True, exist_ok=True)
-    lock = path.with_name(f".{path.name}.lock")
-    deadline = time.monotonic() + 10.0
-    while True:
-        try:
-            descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.close(descriptor)
-            break
-        except FileExistsError:
-            if time.monotonic() >= deadline:
-                raise TimeoutError(f"Timed out waiting for manifest lock: {lock}")
-            time.sleep(0.05)
+    lock_handle = _acquire_manifest_lock(path)
     try:
         rows: list[dict[str, str]] = []
         if path.exists():
@@ -221,13 +256,12 @@ def _append_manifest_row(path: str | Path, row: dict[str, Any]) -> None:
         rows.append(normalized)
         rows.sort(key=lambda item: str(item["path"]))
         temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-        with temporary.open("w", newline="", encoding="utf-8") as handle:
+        with _replace_after_success(temporary, path), temporary.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=MANIFEST_COLUMNS)
             writer.writeheader()
             writer.writerows(rows)
-        os.replace(temporary, path)
     finally:
-        lock.unlink(missing_ok=True)
+        _release_manifest_lock(lock_handle)
 
 
 def _split_lookup(csv_path: str | Path | None) -> dict[str, str]:
