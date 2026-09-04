@@ -39,13 +39,18 @@ def validate_file(path: str | Path) -> list[str]:
                 errors.append("missing /signal/emg or /signal/time_s")
                 return errors
             emg = h5["signal/emg"]
+            emg_values = emg[:]
             time_s = h5["signal/time_s"][:]
             if emg.ndim != 2 or emg.shape[1] != 16:
                 errors.append("/signal/emg must have shape [T,16]")
+            elif not np.isfinite(emg_values).all():
+                errors.append("/signal/emg must contain only finite values")
             if time_s.ndim != 1 or len(time_s) != emg.shape[0]:
                 errors.append("/signal/time_s must have length T")
             elif not np.isfinite(time_s).all() or (len(time_s) > 1 and np.any(np.diff(time_s) < 0)):
                 errors.append("/signal/time_s must be finite and monotonic")
+            elif len(time_s) and not np.isclose(time_s[0], 0.0):
+                errors.append("/signal/time_s must be record-relative (start at 0)")
             if "labels" not in h5 or "meta" not in h5:
                 errors.append("missing /labels or /meta")
     except (OSError, KeyError, TypeError) as error:
