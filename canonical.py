@@ -71,12 +71,85 @@ def _json_default(value: Any) -> Any:
 
 
 def _write_labels(labels_group: h5py.Group, labels: dict[str, Any]) -> None:
-    """Write a lossless interim representation; task tables are added below."""
+    """Write task-specific tables while retaining source-compatible label JSON."""
     labels_group.create_dataset(
         "source_json",
         data=json.dumps(labels, default=_json_default, sort_keys=True),
         dtype=h5py.string_dtype("utf-8"),
     )
+
+
+def _structured_table(
+    rows: list[dict[str, Any]], fields: list[tuple[str, Any]],
+) -> np.ndarray:
+    dtype = np.dtype(fields)
+    result = np.empty(len(rows), dtype=dtype)
+    for index, row in enumerate(rows):
+        result[index] = tuple(row[field] for field, _ in fields)
+    return result
+
+
+def _write_utf8_scalar(group: h5py.Group, name: str, value: Any) -> None:
+    group.create_dataset(name, data=str(value), dtype=h5py.string_dtype("utf-8"))
+
+
+def _write_task_labels(
+    labels_group: h5py.Group, task_id: str, labels: dict[str, Any]
+) -> None:
+    text = h5py.string_dtype("utf-8")
+    if task_id == "typing":
+        labels_group.create_dataset(
+            "keystrokes",
+            data=_structured_table(
+                labels.get("keystrokes", []),
+                [("key", text), ("press_s", np.float64), ("release_s", np.float64)],
+            ),
+        )
+        labels_group.create_dataset(
+            "prompts",
+            data=_structured_table(
+                labels.get("prompts", []),
+                [("text", text), ("start_s", np.float64), ("end_s", np.float64)],
+            ),
+        )
+    elif task_id == "discrete_gesture":
+        labels_group.create_dataset(
+            "events",
+            data=_structured_table(
+                labels.get("events", []), [("name", text), ("time_s", np.float64)]
+            ),
+        )
+        if "stage" in labels:
+            _write_utf8_scalar(labels_group, "stage", labels["stage"])
+    elif task_id == "handwriting":
+        labels_group.create_dataset(
+            "prompts",
+            data=_structured_table(
+                labels.get("prompts", []),
+                [("text", text), ("start_s", np.float64), ("end_s", np.float64)],
+            ),
+        )
+        if "stage" in labels:
+            _write_utf8_scalar(labels_group, "stage", labels["stage"])
+    elif task_id == "pose":
+        if "joint_angles" not in labels:
+            raise ValueError("Pose records require labels['joint_angles']")
+        labels_group.create_dataset("joint_angles", data=np.asarray(labels["joint_angles"]))
+        if "no_ik_failure" in labels:
+            labels_group.create_dataset(
+                "no_ik_failure", data=np.asarray(labels["no_ik_failure"])
+            )
+        if "stage" in labels:
+            _write_utf8_scalar(labels_group, "stage", labels["stage"])
+    elif task_id == "wrist_angle":
+        targets = labels.get("targets", {})
+        if not isinstance(targets, dict) or not targets:
+            raise ValueError("Wrist-angle records require non-empty labels['targets']")
+        target_group = labels_group.create_group("targets")
+        for name, values in targets.items():
+            target_group.create_dataset(str(name), data=np.asarray(values))
+        if "stage" in labels:
+            _write_utf8_scalar(labels_group, "stage", labels["stage"])
 
 
 def write_record(
@@ -115,6 +188,7 @@ def write_record(
 
         labels = h5.create_group("labels")
         _write_labels(labels, record.labels)
+        _write_task_labels(labels, record.task_id, record.labels)
 
         meta = h5.create_group("meta")
         meta.create_dataset(
