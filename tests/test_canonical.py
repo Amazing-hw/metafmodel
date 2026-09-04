@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import h5py
 
 from semg_h5.canonical import CanonicalRecord, validate_record
 
@@ -45,3 +46,20 @@ def test_write_record_creates_required_groups_and_relative_clock(tmp_path):
     assert header["schema_version"] == "1.0"
     assert header["emg_shape"] == (4, 16)
     assert np.allclose(header["time_s"], [0.0, 0.0005, 0.001, 0.0015])
+
+
+def test_typing_labels_round_trip_as_structured_tables(tmp_path):
+    from semg_h5.canonical import write_record
+
+    record = CanonicalRecord.minimal(np.zeros((4, 16)), np.arange(4) / 2000)
+    record.task_id = "typing"
+    record.labels = {
+        "keystrokes": [{"key": "a", "press_s": 0.0005, "release_s": 0.001}],
+        "prompts": [{"text": "a", "start_s": 0.0, "end_s": 0.0015}],
+    }
+    output = tmp_path / "typing.h5"
+    write_record(output, record)
+
+    with h5py.File(output) as h5:
+        assert h5["labels/keystrokes"][0]["key"].decode() == "a"
+        assert h5["labels/prompts"][0]["text"].decode() == "a"
