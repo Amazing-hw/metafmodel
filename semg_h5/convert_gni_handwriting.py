@@ -1,20 +1,150 @@
 """Convert GNI handwriting recordings to canonical HDF5."""
 
-from .gni_conversion import cli_main, convert_gni_file
+import argparse
+import csv
+import hashlib
+import json
+from pathlib import Path
+from typing import Any
+
+import h5py
+import numpy as np
+import pandas as pd
 
 
-def convert_file(source_path, output_root, *, official_split="unknown", overwrite=False):
-    return convert_gni_file(
-        source_path, output_root, expected_source_task="handwriting",
-        dataset_id="gni_handwriting", task_id="handwriting",
-        official_split=official_split, overwrite=overwrite,
-    )
+SCHEMA_VERSION, SAMPLE_RATE_HZ = "1.0", 2000
+EXPECTED_SOURCE_TASK, DATASET_ID, TASK_ID = "handwriting", "gni_handwriting", "handwriting"
+MANIFEST_COLUMNS = ["path", "dataset_id", "task_id", "subject_id", "session_id", "side", "pair_id", "official_split", "sample_count", "duration_s", "source_file", "source_sha256"]
 
 
-def main(argv=None):
-    return cli_main(argv, description=__doc__, expected_source_task="handwriting",
-                    dataset_id="gni_handwriting", task_id="handwriting")
+def _decode(value: Any) -> Any:
+    if isinstance(value, bytes): return value.decode("utf-8", errors="replace")
+    if isinstance(value, np.generic): return value.item()
+    if isinstance(value, np.ndarray): return value.tolist()
+    return value
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+def _json_default(value: Any) -> Any:
+    return _decode(value) if isinstance(value, (bytes, np.generic, np.ndarray)) else str(value)
+
+
+def _rows(path: Path, key: str) -> list[dict[str, Any]]:
+    try:
+        frame = pd.read_hdf(path, key=key)
+    except (FileNotFoundError, KeyError, OSError, ValueError, TypeError):
+        with h5py.File(path, "r") as h5:
+            if key not in h5 or not isinstance(h5[key], h5py.Dataset) or h5[key].dtype.names is None: return []
+            return [{field: _decode(row[field]) for field in h5[key].dtype.names} for row in h5[key][:]]
+    return [{str(column): _decode(value) for column, value in row.items()} for row in frame.to_dict("records")]
+
+
+def _required(row: dict[str, Any], names: tuple[str, ...], kind: str) -> Any:
+    for name in names:
+        if name in row: return row[name]
+    raise ValueError(f"{kind} row lacks one of {names}")
+
+
+def _read_gni(path: str | Path, official_split: str) -> dict[str, Any]:
+    path = Path(path)
+    with h5py.File(path, "r") as h5:
+        if "data" not in h5 or not isinstance(h5["data"], h5py.Dataset): raise ValueError(f"{path} lacks documented GNI 'data' dataset")
+        source = h5["data"]
+        metadata = {str(key): _decode(value) for key, value in source.attrs.items()}
+        if str(metadata.get("task", "")) != EXPECTED_SOURCE_TASK: raise ValueError(f"{path} has task {metadata.get('task', '')!r}; {EXPECTED_SOURCE_TASK!r} was required")
+        fields, data = list(source.dtype.names or ()), source[:]
+        if "time" not in fields: raise ValueError(f"{path} GNI data lacks required 'time' field")
+        candidates = [field for field in fields if np.asarray(data[field]).ndim == 2 and np.asarray(data[field]).shape[1] == 16]
+        emg_field = "emg" if "emg" in candidates else candidates[0] if len(candidates) == 1 else None
+        if emg_field is None: raise ValueError(f"{path} must contain exactly one 16-channel GNI EMG field")
+        emg, time_s = np.asarray(data[emg_field]), np.asarray(data["time"])
+        if time_s.ndim != 1 or len(time_s) != len(emg): raise ValueError("GNI time must be a T-length vector aligned with EMG")
+    stages = _rows(path, "stages")
+    labels: dict[str, Any] = {"prompts": [{"text": str(_required(row, ("prompt", "text"), "handwriting prompt")), "start_s": float(_required(row, ("start", "start_s"), "handwriting prompt")) - float(time_s[0]), "end_s": float(_required(row, ("end", "end_s"), "handwriting prompt")) - float(time_s[0])} for row in _rows(path, "prompts")]}
+    if len(stages) == 1 and "stage" in stages[0]: labels["stage"] = stages[0]["stage"]
+    return {"dataset_id": DATASET_ID, "task_id": TASK_ID, "subject_id": f"{DATASET_ID}:{metadata.get('subject_id', path.parent.name)}", "session_id": f"{DATASET_ID}:{metadata.get('session_id', path.stem)}", "side": str(metadata.get("side", "dominant")), "pair_id": "", "official_split": official_split, "source_file": str(path.resolve()), "emg": emg, "time_s": time_s, "labels": labels, "source_meta": {"source_dataset": "data", "emg_field": emg_field, "attributes": metadata, "stages": stages}, "preprocessing": {"converter_transformations": ["time_s shifted to record-relative origin"]}}
+
+
+def _safe(value: str) -> str:
+    return ("".join(char if char.isalnum() or char in "._-" else "_" for char in value).strip(".") or "unknown")
+
+
+def _relative(record: dict[str, Any]) -> Path:
+    return Path(_safe(record["dataset_id"])) / _safe(record["task_id"]) / _safe(record["subject_id"].split(":", 1)[-1]) / f"{_safe(record['session_id'].split(':', 1)[-1])}_{_safe(record['side'])}.h5"
+
+
+def _validate(record: dict[str, Any]) -> None:
+    emg, time_s = record["emg"], record["time_s"]
+    if emg.ndim != 2 or emg.shape[1] != 16: raise ValueError("EMG must have shape [T, 16] with exactly 16 channels")
+    if time_s.ndim != 1 or len(time_s) != len(emg): raise ValueError("time_s must be a length-T vector matching EMG")
+    if not np.isfinite(emg).all() or not np.isfinite(time_s).all(): raise ValueError("EMG and time_s must be finite")
+    if len(time_s) > 1 and np.any(np.diff(time_s) < 0): raise ValueError("time_s must be monotonic")
+
+
+def _write(path: str | Path, record: dict[str, Any], *, overwrite: bool) -> None:
+    _validate(record); path = Path(path)
+    if path.exists() and not overwrite: raise FileExistsError(f"Refusing to overwrite existing canonical record: {path}")
+    path.parent.mkdir(parents=True, exist_ok=True); relative_time = record["time_s"].astype(np.float64, copy=False) - record["time_s"][0]
+    with h5py.File(path, "w") as h5:
+        h5.attrs.update({"schema_version": SCHEMA_VERSION, **{key: record[key] for key in ("dataset_id", "task_id", "subject_id", "session_id", "side", "pair_id", "official_split", "source_file")}, "sample_rate_hz": SAMPLE_RATE_HZ, "preprocessing_json": json.dumps(record["preprocessing"], default=_json_default, sort_keys=True)})
+        signal = h5.create_group("signal"); signal.create_dataset("emg", data=record["emg"].astype(np.float32, copy=False), compression="gzip"); signal.create_dataset("time_s", data=relative_time)
+        labels = h5.create_group("labels"); labels.create_dataset("source_json", data=json.dumps(record["labels"], default=_json_default, sort_keys=True), dtype=h5py.string_dtype("utf-8"))
+        text = h5py.string_dtype("utf-8"); prompt_dtype = np.dtype([("text", text), ("start_s", np.float64), ("end_s", np.float64)])
+        prompts = np.empty(len(record["labels"]["prompts"]), dtype=prompt_dtype)
+        for index, row in enumerate(record["labels"]["prompts"]): prompts[index] = (row["text"], row["start_s"], row["end_s"])
+        labels.create_dataset("prompts", data=prompts)
+        if "stage" in record["labels"]: labels.create_dataset("stage", data=str(record["labels"]["stage"]), dtype=text)
+        meta = h5.create_group("meta"); meta.create_dataset("source_json", data=json.dumps(record["source_meta"], default=_json_default, sort_keys=True), dtype=text)
+        quality = meta.create_group("quality"); quality.create_dataset("sample_count", data=len(record["emg"])); quality.create_dataset("duration_s", data=float(relative_time[-1])); quality.create_dataset("nan_count", data=int(np.isnan(record["emg"]).sum())); quality.create_dataset("channel_rms", data=np.sqrt(np.mean(record["emg"].astype(np.float32, copy=False) ** 2, axis=0)))
+
+
+def _sha256(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""): digest.update(block)
+    return digest.hexdigest()
+
+
+def _manifest(record: dict[str, Any], relative: Path) -> dict[str, Any]:
+    return {"path": relative.as_posix(), **{key: record[key] for key in ("dataset_id", "task_id", "subject_id", "session_id", "side", "pair_id", "official_split", "source_file")}, "sample_count": int(len(record["emg"])), "duration_s": float(record["time_s"][-1] - record["time_s"][0]), "source_sha256": _sha256(record["source_file"])}
+
+
+def _append(path: str | Path, row: dict[str, Any]) -> None:
+    path = Path(path); rows = []
+    if path.exists():
+        with path.open(newline="", encoding="utf-8") as handle: rows = list(csv.DictReader(handle))
+    rows = [item for item in rows if item["path"] != row["path"]] + [{column: row[column] for column in MANIFEST_COLUMNS}]; rows.sort(key=lambda item: item["path"])
+    path.parent.mkdir(parents=True, exist_ok=True); temporary = path.with_name(f"{path.name}.tmp")
+    with temporary.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=MANIFEST_COLUMNS); writer.writeheader(); writer.writerows(rows)
+    temporary.replace(path)
+
+
+def _splits(path: str | Path | None) -> dict[str, str]:
+    if path is None: return {}
+    with Path(path).open(newline="", encoding="utf-8") as handle:
+        rows = csv.DictReader(handle)
+        if not rows.fieldnames or "split" not in rows.fieldnames: raise ValueError("Split CSV must include a 'split' column")
+        column = next((name for name in ("path", "source_file", "file") if name in rows.fieldnames), None)
+        if column is None: raise ValueError("Split CSV must include one of: path, source_file, file")
+        return {str(row[column]).replace("\\", "/"): str(row["split"]) for row in rows}
+
+
+def convert_file(source_path: str | Path, output_root: str | Path, *, official_split: str = "unknown", overwrite: bool = False) -> dict[str, object]:
+    record = _read_gni(source_path, official_split); relative = _relative(record); _write(Path(output_root) / relative, record, overwrite=overwrite); return _manifest(record, relative)
+
+
+def run_conversion(input_root: str | Path, output_root: str | Path, *, split: str | None = None, splits_csv: str | Path | None = None, overwrite: bool = False) -> list[dict[str, object]]:
+    input_root, output_root, lookup = Path(input_root), Path(output_root), _splits(splits_csv); results = []
+    for source in sorted(input_root.rglob("*.h5")):
+        official_split = lookup.get(source.relative_to(input_root).as_posix(), lookup.get(source.name, "unknown"))
+        if split is None or official_split == split:
+            row = convert_file(source, output_root, official_split=official_split, overwrite=overwrite); _append(output_root / "manifest.csv", row); results.append(row)
+    return results
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__); parser.add_argument("--input-root", required=True); parser.add_argument("--output-root", required=True); parser.add_argument("--split"); parser.add_argument("--splits-csv"); parser.add_argument("--overwrite", action="store_true")
+    args = parser.parse_args(argv); rows = run_conversion(args.input_root, args.output_root, split=args.split, splits_csv=args.splits_csv, overwrite=args.overwrite); print(f"Converted {len(rows)} {DATASET_ID} records."); return 0
+
+
+if __name__ == "__main__": raise SystemExit(main())
