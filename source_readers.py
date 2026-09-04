@@ -1,6 +1,7 @@
 """Source-layout readers and provenance helpers for Meta public datasets."""
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -105,3 +106,135 @@ def read_emg2pose(path: str | Path, official_split: str = "unknown") -> Canonica
             },
             preprocessing={"converter_transformations": ["time_s shifted to record-relative origin"]},
         )
+
+
+def _json_rows(value: Any, label_name: str) -> list[dict[str, Any]]:
+    if isinstance(value, bytes):
+        value = value.decode("utf-8")
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"Invalid JSON for {label_name}: {error}") from error
+    if isinstance(value, dict):
+        value = value.get(label_name, value.get("rows", []))
+    if not isinstance(value, list) or not all(isinstance(row, dict) for row in value):
+        raise ValueError(f"{label_name} must decode to a list of objects")
+    return [{str(key): decode_value(item) for key, item in row.items()} for row in value]
+
+
+def _dataset_rows(group: h5py.Group, names: tuple[str, ...]) -> list[dict[str, Any]] | None:
+    for name in names:
+        if name not in group:
+            continue
+        dataset = group[name]
+        if not isinstance(dataset, h5py.Dataset):
+            continue
+        if dataset.dtype.names is None:
+            return _json_rows(dataset.asstr()[()], name)
+        return [
+            {field: decode_value(row[field]) for field in dataset.dtype.names}
+            for row in dataset[:]
+        ]
+    return None
+
+
+def _metadata_rows(
+    group: h5py.Group, metadata: dict[str, Any], names: tuple[str, ...]
+) -> list[dict[str, Any]]:
+    rows = _dataset_rows(group, names)
+    if rows is not None:
+        return rows
+    for name in names:
+        for candidate in (name, f"{name}_json"):
+            if candidate in metadata:
+                return _json_rows(metadata[candidate], name)
+    return []
+
+
+def _required_value(row: dict[str, Any], names: tuple[str, ...], label: str) -> Any:
+    for name in names:
+        if name in row:
+            return row[name]
+    raise ValueError(f"{label} row lacks one of {names}")
+
+
+def _relative_qwerty_labels(
+    group: h5py.Group, metadata: dict[str, Any], origin_s: float
+) -> dict[str, Any]:
+    keystrokes = []
+    for row in _metadata_rows(group, metadata, ("keystrokes", "keylogger")):
+        keystrokes.append(
+            {
+                "key": str(_required_value(row, ("key", "key_name", "name"), "keystroke")),
+                "press_s": float(
+                    _required_value(row, ("press_s", "press", "down_s", "down"), "keystroke")
+                )
+                - origin_s,
+                "release_s": float(
+                    _required_value(
+                        row, ("release_s", "release", "up_s", "up"), "keystroke"
+                    )
+                )
+                - origin_s,
+            }
+        )
+    prompts = []
+    for row in _metadata_rows(group, metadata, ("prompts", "prompt")):
+        prompts.append(
+            {
+                "text": str(_required_value(row, ("text", "prompt"), "prompt")),
+                "start_s": float(_required_value(row, ("start_s", "start"), "prompt")) - origin_s,
+                "end_s": float(_required_value(row, ("end_s", "end"), "prompt")) - origin_s,
+            }
+        )
+    return {"keystrokes": keystrokes, "prompts": prompts}
+
+
+def read_emg2qwerty(
+    path: str | Path, official_split: str = "unknown"
+) -> list[CanonicalRecord]:
+    """Read one bilateral qwerty session as two linked canonical wrist records."""
+    path = Path(path)
+    with h5py.File(path, "r") as h5:
+        if "emg2qwerty/timeseries" not in h5:
+            raise ValueError(f"{path} lacks documented emg2qwerty/timeseries dataset")
+        group = h5["emg2qwerty"]
+        timeseries = h5["emg2qwerty/timeseries"]
+        required = {"emg_left", "emg_right", "time"}
+        fields = set(timeseries.dtype.names or ())
+        missing = required - fields
+        if missing:
+            raise ValueError(f"{path} missing qwerty timeseries fields: {sorted(missing)}")
+        data = timeseries[:]
+        left, right, time_s = data["emg_left"], data["emg_right"], data["time"]
+        if left.ndim != 2 or right.ndim != 2 or left.shape != right.shape or left.shape[1] != 16:
+            raise ValueError("qwerty EMG sides must be aligned [T,16] arrays")
+        if time_s.ndim != 1 or len(time_s) != len(left):
+            raise ValueError("qwerty time must align with both EMG sides")
+        metadata = read_attributes(group)
+        subject_raw = str(metadata.get("subject_id", path.parent.name))
+        session_raw = str(metadata.get("session_id", path.stem))
+        pair_id = f"emg2qwerty:{session_raw}"
+        labels = _relative_qwerty_labels(group, metadata, float(time_s[0]))
+        common = {
+            "dataset_id": "emg2qwerty",
+            "task_id": "typing",
+            "subject_id": f"emg2qwerty:{subject_raw}",
+            "session_id": pair_id,
+            "pair_id": pair_id,
+            "official_split": official_split,
+            "source_file": str(path.resolve()),
+            "time_s": np.asarray(time_s),
+            "labels": labels,
+            "source_meta": {
+                "source_group": "emg2qwerty",
+                "source_timeseries": "emg2qwerty/timeseries",
+                "attributes": metadata,
+            },
+            "preprocessing": {"converter_transformations": ["time_s shifted to record-relative origin"]},
+        }
+        return [
+            CanonicalRecord(side="left", emg=np.asarray(left), **common),
+            CanonicalRecord(side="right", emg=np.asarray(right), **common),
+        ]
