@@ -29,3 +29,19 @@ def test_validate_record_rejects_a_non_16_channel_stream():
     )
     with pytest.raises(ValueError, match="16 channels"):
         validate_record(record)
+
+
+def test_write_record_creates_required_groups_and_relative_clock(tmp_path):
+    from semg_h5.canonical import read_canonical_header, write_record
+
+    record = CanonicalRecord.minimal(
+        emg=np.arange(64, dtype=np.float64).reshape(4, 16),
+        time_s=np.array([10.0, 10.0005, 10.001, 10.0015]),
+    )
+    output = tmp_path / "record.h5"
+    write_record(output, record)
+
+    header = read_canonical_header(output)
+    assert header["schema_version"] == "1.0"
+    assert header["emg_shape"] == (4, 16)
+    assert np.allclose(header["time_s"], [0.0, 0.0005, 0.001, 0.0015])
