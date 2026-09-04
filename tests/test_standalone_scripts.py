@@ -1,14 +1,19 @@
 """Verify converter scripts can run independently of the ``semg_h5`` package."""
 
 import ast
+import csv
 import importlib.util
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import sys
 
 import h5py
 import pytest
 
 
-REPOSITORY_ROOT = Path("D:/Fmodel")
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SEMG_H5_DIRECTORY = REPOSITORY_ROOT / "semg_h5"
 CONVERTER_NAMES = [
     "convert_emg2pose.py",
@@ -63,23 +68,53 @@ def _source_path(request, fixture_name):
     return request.getfixturevalue("gni_h5_by_task")[fixture_name]
 
 
+def test_converter_scripts_have_absolute_import_specs():
+    for converter_name in CONVERTER_NAMES:
+        script_path = (SEMG_H5_DIRECTORY / converter_name).resolve()
+        spec = importlib.util.spec_from_file_location(f"standalone_{script_path.stem}", script_path)
+        assert script_path.is_absolute()
+        assert spec is not None and spec.origin == str(script_path)
+
+
 @pytest.mark.parametrize(
     ("converter_name", "fixture_name", "task_id", "label_path"), CONVERTER_CASES
 )
-def test_converter_script_executes_against_existing_fixtures(
-    tmp_path, request, monkeypatch, converter_name, fixture_name, task_id, label_path
+def test_converter_script_executes_as_a_clean_subprocess(
+    tmp_path, request, converter_name, fixture_name, task_id, label_path
 ):
     script_path = (SEMG_H5_DIRECTORY / converter_name).resolve()
-    monkeypatch.syspath_prepend(str(SEMG_H5_DIRECTORY))
-    spec = importlib.util.spec_from_file_location(f"standalone_{script_path.stem}", script_path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    input_root = tmp_path / "input"
+    input_root.mkdir()
+    source_path = _source_path(request, fixture_name)
+    shutil.copy2(source_path, input_root / source_path.name)
+    output_root = tmp_path / "out"
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    environment.pop("PYTHONHOME", None)
+    environment["PYTHONNOUSERSITE"] = "1"
 
-    result = module.convert_file(_source_path(request, fixture_name), tmp_path / "out")
-    manifest_rows = result if isinstance(result, list) else [result]
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(script_path),
+            "--input-root",
+            str(input_root),
+            "--output-root",
+            str(output_root),
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+    with (output_root / "manifest.csv").open(newline="", encoding="utf-8") as handle:
+        manifest_rows = list(csv.DictReader(handle))
+    assert manifest_rows
     for manifest_row in manifest_rows:
-        with h5py.File(tmp_path / "out" / manifest_row["path"]) as h5:
+        with h5py.File(output_root / manifest_row["path"]) as h5:
             assert h5.attrs["task_id"] == task_id
             assert h5["signal/emg"].shape == (4, 16)
             assert label_path in h5
