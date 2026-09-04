@@ -1,0 +1,20 @@
+"""Convert GNI handwriting recordings to canonical HDF5."""
+
+from .gni_conversion import cli_main, convert_gni_file
+
+
+def convert_file(source_path, output_root, *, official_split="unknown", overwrite=False):
+    return convert_gni_file(
+        source_path, output_root, expected_source_task="handwriting",
+        dataset_id="gni_handwriting", task_id="handwriting",
+        official_split=official_split, overwrite=overwrite,
+    )
+
+
+def main(argv=None):
+    return cli_main(argv, description=__doc__, expected_source_task="handwriting",
+                    dataset_id="gni_handwriting", task_id="handwriting")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

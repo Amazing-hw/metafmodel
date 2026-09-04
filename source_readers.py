@@ -7,6 +7,7 @@ from typing import Any
 
 import h5py
 import numpy as np
+import pandas as pd
 
 from .canonical import CanonicalRecord
 
@@ -238,3 +239,122 @@ def read_emg2qwerty(
             CanonicalRecord(side="left", emg=np.asarray(left), **common),
             CanonicalRecord(side="right", emg=np.asarray(right), **common),
         ]
+
+
+def _read_gni_table(path: Path, key: str) -> list[dict[str, Any]]:
+    """Read an optional pandas HDF table, with a structured-dataset fallback."""
+    try:
+        frame = pd.read_hdf(path, key=key)
+    except (FileNotFoundError, KeyError, OSError, ValueError, TypeError):
+        with h5py.File(path, "r") as h5:
+            if key not in h5 or not isinstance(h5[key], h5py.Dataset):
+                return []
+            dataset = h5[key]
+            if dataset.dtype.names is None:
+                return []
+            return [
+                {field: decode_value(row[field]) for field in dataset.dtype.names}
+                for row in dataset[:]
+            ]
+    return [
+        {str(column): decode_value(value) for column, value in row.items()}
+        for row in frame.to_dict("records")
+    ]
+
+
+def read_gni(
+    path: str | Path,
+    *,
+    expected_source_task: str,
+    dataset_id: str,
+    task_id: str,
+    official_split: str = "unknown",
+) -> CanonicalRecord:
+    """Read one Generic Neuromotor Interface source H5 into a canonical record."""
+    path = Path(path)
+    with h5py.File(path, "r") as h5:
+        if "data" not in h5 or not isinstance(h5["data"], h5py.Dataset):
+            raise ValueError(f"{path} lacks documented GNI 'data' dataset")
+        data_dataset = h5["data"]
+        metadata = read_attributes(data_dataset)
+        source_task = str(metadata.get("task", ""))
+        if source_task != expected_source_task:
+            raise ValueError(
+                f"{path} has task {source_task!r}; {expected_source_task!r} was required"
+            )
+        fields = list(data_dataset.dtype.names or ())
+        if "time" not in fields:
+            raise ValueError(f"{path} GNI data lacks required 'time' field")
+        data = data_dataset[:]
+        emg_fields = [
+            field
+            for field in fields
+            if np.asarray(data[field]).ndim == 2 and np.asarray(data[field]).shape[1] == 16
+        ]
+        if "emg" in emg_fields:
+            emg_field = "emg"
+        elif len(emg_fields) == 1:
+            emg_field = emg_fields[0]
+        else:
+            raise ValueError(f"{path} must contain exactly one 16-channel GNI EMG field")
+        emg, time_s = np.asarray(data[emg_field]), np.asarray(data["time"])
+        if time_s.ndim != 1 or len(time_s) != len(emg):
+            raise ValueError("GNI time must be a T-length vector aligned with EMG")
+        subject_raw = str(metadata.get("subject_id", path.parent.name))
+        session_raw = str(metadata.get("session_id", path.stem))
+
+        labels: dict[str, Any] = {}
+        source_stages = _read_gni_table(path, "stages")
+        if len(source_stages) == 1 and "stage" in source_stages[0]:
+            labels["stage"] = source_stages[0]["stage"]
+        if task_id == "discrete_gesture":
+            labels["events"] = [
+                {
+                    "name": str(_required_value(row, ("name", "gesture"), "gesture")),
+                    "time_s": float(_required_value(row, ("time", "time_s"), "gesture"))
+                    - float(time_s[0]),
+                }
+                for row in _read_gni_table(path, "prompts")
+            ]
+        elif task_id == "handwriting":
+            labels["prompts"] = [
+                {
+                    "text": str(_required_value(row, ("prompt", "text"), "handwriting prompt")),
+                    "start_s": float(_required_value(row, ("start", "start_s"), "handwriting prompt"))
+                    - float(time_s[0]),
+                    "end_s": float(_required_value(row, ("end", "end_s"), "handwriting prompt"))
+                    - float(time_s[0]),
+                }
+                for row in _read_gni_table(path, "prompts")
+            ]
+        elif task_id == "wrist_angle":
+            targets: dict[str, np.ndarray] = {}
+            for field in fields:
+                values = np.asarray(data[field])
+                if field in {"time", emg_field} or not np.issubdtype(values.dtype, np.number):
+                    continue
+                if values.shape[0] != len(emg):
+                    raise ValueError(f"GNI wrist target {field!r} does not align with EMG")
+                targets[safe_component(field)] = values
+            labels["targets"] = targets
+
+        return CanonicalRecord(
+            dataset_id=dataset_id,
+            task_id=task_id,
+            subject_id=f"{dataset_id}:{subject_raw}",
+            session_id=f"{dataset_id}:{session_raw}",
+            side=str(metadata.get("side", "dominant")),
+            pair_id="",
+            official_split=official_split,
+            source_file=str(path.resolve()),
+            emg=emg,
+            time_s=time_s,
+            labels=labels,
+            source_meta={
+                "source_dataset": "data",
+                "emg_field": emg_field,
+                "attributes": metadata,
+                "stages": source_stages,
+            },
+            preprocessing={"converter_transformations": ["time_s shifted to record-relative origin"]},
+        )
