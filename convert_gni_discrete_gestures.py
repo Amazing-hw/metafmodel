@@ -5,8 +5,11 @@ import csv
 from dataclasses import dataclass
 import hashlib
 import json
+import os
 from pathlib import Path
+import time
 from typing import Any
+import uuid
 
 import h5py
 import numpy as np
@@ -66,6 +69,8 @@ def _validate_record(record: CanonicalRecord) -> None:
         raise ValueError("EMG must have shape [T, 16] with exactly 16 channels")
     if record.time_s.ndim != 1 or len(record.time_s) != len(record.emg):
         raise ValueError("time_s must be a length-T vector matching EMG")
+    if len(record.emg) == 0:
+        raise ValueError("GNI records must contain at least one sample")
     if not np.isfinite(record.emg).all() or not np.isfinite(record.time_s).all():
         raise ValueError("EMG and time_s must be finite")
     if len(record.time_s) > 1 and np.any(np.diff(record.time_s) < 0):
@@ -85,8 +90,9 @@ def _write_record(path: str | Path, record: CanonicalRecord, *, overwrite: bool 
     if output.exists() and not overwrite:
         raise FileExistsError(f"Refusing to overwrite existing canonical record: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(f".{output.name}.{uuid.uuid4().hex}.tmp")
     relative_time_s = record.time_s.astype(np.float64, copy=False) - record.time_s[0]
-    with h5py.File(output, "w") as h5:
+    with h5py.File(temporary, "w") as h5:
         h5.attrs.update({
             "schema_version": SCHEMA_VERSION, "dataset_id": record.dataset_id,
             "task_id": record.task_id, "subject_id": record.subject_id,
@@ -110,6 +116,7 @@ def _write_record(path: str | Path, record: CanonicalRecord, *, overwrite: bool 
         quality.create_dataset("duration_s", data=float(relative_time_s[-1]))
         quality.create_dataset("nan_count", data=int(np.isnan(record.emg).sum()))
         quality.create_dataset("channel_rms", data=np.sqrt(np.mean(record.emg.astype(np.float32, copy=False) ** 2, axis=0)))
+    os.replace(temporary, output)
     return output
 
 
@@ -155,6 +162,8 @@ def _read_gni(path: str | Path, official_split: str) -> CanonicalRecord:
         emg, time_s = np.asarray(data[emg_field]), np.asarray(data["time"])
         if time_s.ndim != 1 or len(time_s) != len(emg):
             raise ValueError("GNI time must be a T-length vector aligned with EMG")
+        if len(emg) == 0:
+            raise ValueError("GNI records must contain at least one sample")
         stages = _read_gni_table(path, "stages")
         labels: dict[str, Any] = {"events": [{"name": str(_required_value(row, ("name", "gesture"), "gesture")), "time_s": float(_required_value(row, ("time", "time_s"), "gesture")) - float(time_s[0])} for row in _read_gni_table(path, "prompts")]}
         if len(stages) == 1 and "stage" in stages[0]:
@@ -190,21 +199,35 @@ def _append_manifest_row(path: str | Path, row: dict[str, Any]) -> None:
     missing = set(MANIFEST_COLUMNS) - set(row)
     if missing:
         raise ValueError(f"Manifest row missing required fields: {sorted(missing)}")
-    rows: list[dict[str, str]] = []
-    if path.exists():
-        with path.open(newline="", encoding="utf-8") as handle:
-            rows = list(csv.DictReader(handle))
-    normalized = {column: row[column] for column in MANIFEST_COLUMNS}
-    rows = [existing for existing in rows if existing["path"] != normalized["path"]]
-    rows.append(normalized)
-    rows.sort(key=lambda item: str(item["path"]))
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.name}.tmp")
-    with temporary.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=MANIFEST_COLUMNS)
-        writer.writeheader()
-        writer.writerows(rows)
-    temporary.replace(path)
+    lock = path.with_name(f".{path.name}.lock")
+    deadline = time.monotonic() + 10.0
+    while True:
+        try:
+            descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(descriptor)
+            break
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Timed out waiting for manifest lock: {lock}")
+            time.sleep(0.05)
+    try:
+        rows: list[dict[str, str]] = []
+        if path.exists():
+            with path.open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+        normalized = {column: row[column] for column in MANIFEST_COLUMNS}
+        rows = [existing for existing in rows if existing["path"] != normalized["path"]]
+        rows.append(normalized)
+        rows.sort(key=lambda item: str(item["path"]))
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        with temporary.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=MANIFEST_COLUMNS)
+            writer.writeheader()
+            writer.writerows(rows)
+        os.replace(temporary, path)
+    finally:
+        lock.unlink(missing_ok=True)
 
 
 def _split_lookup(csv_path: str | Path | None) -> dict[str, str]:
@@ -229,6 +252,12 @@ def convert_file(source_path: str | Path, output_root: str | Path, *, official_s
 
 def run_conversion(input_root: str | Path, output_root: str | Path, *, split: str | None = None, splits_csv: str | Path | None = None, overwrite: bool = False) -> list[dict[str, object]]:
     input_root, output_root = Path(input_root), Path(output_root)
+    try:
+        output_root.resolve().relative_to(input_root.resolve())
+    except ValueError:
+        pass
+    else:
+        raise ValueError("output-root must not be nested under input-root")
     lookup = _split_lookup(splits_csv)
     rows: list[dict[str, object]] = []
     for source_path in sorted(input_root.rglob("*.h5")):
