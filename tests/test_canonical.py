@@ -63,3 +63,18 @@ def test_typing_labels_round_trip_as_structured_tables(tmp_path):
     with h5py.File(output) as h5:
         assert h5["labels/keystrokes"][0]["key"].decode() == "a"
         assert h5["labels/prompts"][0]["text"].decode() == "a"
+
+
+def test_tree_validator_rejects_nan_signal_values(tmp_path):
+    from semg_h5.canonical import write_record
+    from semg_h5.validate import validate_tree
+
+    output = tmp_path / "record.h5"
+    write_record(
+        output,
+        CanonicalRecord.minimal(np.zeros((4, 16)), np.arange(4) / 2000),
+    )
+    with h5py.File(output, "r+") as h5:
+        h5["signal/emg"][0, 0] = np.nan
+
+    assert any("finite" in error for error in validate_tree(output)[output])
