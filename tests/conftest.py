@@ -1,6 +1,7 @@
 import h5py
 import json
 import numpy as np
+import pandas as pd
 import pytest
 
 
@@ -53,3 +54,36 @@ def qwerty_h5(tmp_path):
         )
         group.create_dataset("timeseries", data=rows)
     return source_path
+
+
+@pytest.fixture
+def gni_h5_by_task(tmp_path):
+    sources = {}
+    task_specs = {
+        "discrete_gesture": ("discrete_gestures", {"name": ["fist"], "time": [30.0005]}),
+        "handwriting": (
+            "handwriting",
+            {"prompt": ["a"], "start": [30.0], "end": [30.0015]},
+        ),
+        "wrist_angle": ("wrist", None),
+    }
+    for canonical_task, (source_task, prompts) in task_specs.items():
+        source_path = tmp_path / f"{source_task}.h5"
+        fields = [("emg", np.float32, (16,)), ("time", np.float64)]
+        if source_task == "wrist":
+            fields.append(("flexion_extension", np.float32))
+        rows = np.zeros(4, dtype=np.dtype(fields))
+        rows["emg"] = 3
+        rows["time"] = np.arange(4) / 2000 + 30.0
+        if source_task == "wrist":
+            rows["flexion_extension"] = np.arange(4, dtype=np.float32)
+        with h5py.File(source_path, "w") as h5:
+            data = h5.create_dataset("data", data=rows)
+            data.attrs["task"] = source_task
+            data.attrs["subject_id"] = "gni_user"
+            data.attrs["session_id"] = source_task
+            data.attrs["side"] = "right"
+        if prompts is not None:
+            pd.DataFrame(prompts).to_hdf(source_path, key="prompts", mode="a")
+        sources[canonical_task] = source_path
+    return sources
