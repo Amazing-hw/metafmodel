@@ -103,6 +103,7 @@ def _read_gni(path: str | Path, official_split: str) -> dict[str, Any]:
             values = np.asarray(data[field])
             if field in {"time", emg_field} or not np.issubdtype(values.dtype, np.number): continue
             if values.shape[0] != len(emg): raise ValueError(f"GNI wrist target {field!r} does not align with EMG")
+            if not np.isfinite(values).all(): raise ValueError(f"GNI wrist target {field!r} must be finite")
             target_name = _safe(field)
             if target_name in targets:
                 raise ValueError(f"GNI wrist target sanitization collision: {target_fields[target_name]!r} and {field!r} both map to {target_name!r}")
