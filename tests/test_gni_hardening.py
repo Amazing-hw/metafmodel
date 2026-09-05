@@ -81,6 +81,17 @@ def test_wrist_converter_rejects_sanitized_target_name_collision(tmp_path):
         converter.convert_file(source, tmp_path / "out")
 
 
+def test_wrist_converter_rejects_nonfinite_target_with_field_name(tmp_path):
+    source = tmp_path / "nonfinite_target.h5"
+    _write_gni_source(source, "wrist", target_fields=[("flexion_extension", np.float32)])
+    with h5py.File(source, "r+") as h5:
+        h5["data"]["flexion_extension"] = np.nan
+
+    converter = _load_converter("convert_gni_wrist")
+    with pytest.raises(ValueError, match="flexion_extension.*finite"):
+        converter.convert_file(source, tmp_path / "out")
+
+
 @pytest.mark.parametrize("converter_name", GNI_CONVERTERS)
 def test_gni_h5_replace_failure_preserves_existing_output_and_cleans_temp(tmp_path, monkeypatch, converter_name):
     source = tmp_path / "source.h5"
