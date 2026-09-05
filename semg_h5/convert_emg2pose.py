@@ -2,11 +2,16 @@
 
 import argparse
 import csv
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
+import msvcrt
+import os
 from pathlib import Path
+import time
 from typing import Any
+import uuid
 
 import h5py
 import numpy as np
@@ -30,11 +35,56 @@ class CanonicalRecord:
     pair_id: str
     official_split: str
     source_file: str
+    source_path: str
     emg: np.ndarray
     time_s: np.ndarray
     labels: dict[str, Any]
     source_meta: dict[str, Any]
     preprocessing: dict[str, Any]
+
+
+@contextmanager
+def _replace_after_success(temporary: Path, destination: Path):
+    try:
+        yield
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    try:
+        os.replace(temporary, destination)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def _acquire_manifest_lock(path: Path):
+    lock = path.with_name(f".{path.name}.lock")
+    handle = lock.open("a+b")
+    try:
+        if lock.stat().st_size == 0:
+            handle.write(b"\0")
+            handle.flush()
+        deadline = time.monotonic() + 10.0
+        while True:
+            try:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                return handle
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"Timed out waiting for manifest lock: {lock}")
+                time.sleep(0.05)
+    except BaseException:
+        handle.close()
+        raise
+
+
+def _release_manifest_lock(handle) -> None:
+    try:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    finally:
+        handle.close()
 
 
 def _json_default(value: Any) -> Any:
@@ -62,10 +112,24 @@ def _validate_record(record: CanonicalRecord) -> None:
         raise ValueError("EMG must have shape [T, 16] with exactly 16 channels")
     if record.time_s.ndim != 1 or len(record.time_s) != len(record.emg):
         raise ValueError("time_s must be a length-T vector matching EMG")
+    if len(record.emg) == 0:
+        raise ValueError("emg2pose records must contain at least one sample")
     if not np.isfinite(record.emg).all() or not np.isfinite(record.time_s).all():
         raise ValueError("EMG and time_s must be finite")
     if len(record.time_s) > 1 and np.any(np.diff(record.time_s) < 0):
         raise ValueError("time_s must be monotonic")
+    if record.task_id == "pose":
+        if "joint_angles" not in record.labels:
+            raise ValueError("Pose records require labels['joint_angles']")
+        joint_angles = np.asarray(record.labels["joint_angles"])
+        if joint_angles.ndim == 0 or joint_angles.shape[0] != len(record.emg):
+            raise ValueError("joint_angles must align with EMG samples")
+        if not np.issubdtype(joint_angles.dtype, np.number) or not np.isfinite(joint_angles).all():
+            raise ValueError("joint_angles must be finite numeric values")
+        if "no_ik_failure" in record.labels:
+            no_ik_failure = np.asarray(record.labels["no_ik_failure"])
+            if no_ik_failure.ndim == 0 or no_ik_failure.shape[0] != len(record.emg):
+                raise ValueError("no_ik_failure must align with EMG samples")
 
 
 def _write_record(path: str | Path, record: CanonicalRecord, *, overwrite: bool = False) -> Path:
@@ -74,9 +138,10 @@ def _write_record(path: str | Path, record: CanonicalRecord, *, overwrite: bool 
     if output.exists() and not overwrite:
         raise FileExistsError(f"Refusing to overwrite existing canonical record: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(f".{output.name}.{uuid.uuid4().hex}.tmp")
     relative_time_s = record.time_s.astype(np.float64, copy=False) - record.time_s[0]
     emg = record.emg.astype(np.float32, copy=False)
-    with h5py.File(output, "w") as h5:
+    with _replace_after_success(temporary, output), h5py.File(temporary, "w") as h5:
         h5.attrs.update({
             "schema_version": SCHEMA_VERSION, "dataset_id": record.dataset_id,
             "task_id": record.task_id, "subject_id": record.subject_id,
@@ -134,7 +199,7 @@ def _build_manifest_row(record: CanonicalRecord, relative_path: Path) -> dict[st
         "subject_id": record.subject_id, "session_id": record.session_id, "side": record.side,
         "pair_id": record.pair_id, "official_split": record.official_split,
         "sample_count": int(len(record.emg)), "duration_s": float(record.time_s[-1] - record.time_s[0]),
-        "source_file": record.source_file, "source_sha256": _source_sha256(record.source_file),
+        "source_file": record.source_file, "source_sha256": _source_sha256(record.source_path),
     }
 
 
@@ -145,25 +210,34 @@ def _read_manifest(path: str | Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
-def _append_manifest_row(path: str | Path, row: dict[str, Any]) -> None:
+def _append_manifest_rows(path: str | Path, new_rows: list[dict[str, Any]]) -> None:
     path = Path(path)
-    missing = set(MANIFEST_COLUMNS) - set(row)
-    if missing:
-        raise ValueError(f"Manifest row missing required fields: {sorted(missing)}")
-    normalized = {column: row[column] for column in MANIFEST_COLUMNS}
-    rows = [existing for existing in _read_manifest(path) if existing["path"] != normalized["path"]]
-    rows.append(normalized)
-    rows.sort(key=lambda item: str(item["path"]))
+    for row in new_rows:
+        missing = set(MANIFEST_COLUMNS) - set(row)
+        if missing:
+            raise ValueError(f"Manifest row missing required fields: {sorted(missing)}")
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.name}.tmp")
-    with temporary.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=MANIFEST_COLUMNS)
-        writer.writeheader()
-        writer.writerows(rows)
-    temporary.replace(path)
+    lock_handle = _acquire_manifest_lock(path)
+    try:
+        normalized = [{column: row[column] for column in MANIFEST_COLUMNS} for row in new_rows]
+        replaced_paths = {row["path"] for row in normalized}
+        rows = [existing for existing in _read_manifest(path) if existing["path"] not in replaced_paths]
+        rows.extend(normalized)
+        rows.sort(key=lambda item: str(item["path"]))
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        with _replace_after_success(temporary, path), temporary.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=MANIFEST_COLUMNS)
+            writer.writeheader()
+            writer.writerows(rows)
+    finally:
+        _release_manifest_lock(lock_handle)
 
 
-def _read_emg2pose(path: str | Path, official_split: str = "unknown") -> CanonicalRecord:
+def _append_manifest_row(path: str | Path, row: dict[str, Any]) -> None:
+    _append_manifest_rows(path, [row])
+
+
+def _read_emg2pose(path: str | Path, official_split: str = "unknown", source_file: str | None = None) -> CanonicalRecord:
     path = Path(path)
     with h5py.File(path, "r") as h5:
         if "emg2pose/timeseries" not in h5:
@@ -175,10 +249,22 @@ def _read_emg2pose(path: str | Path, official_split: str = "unknown") -> Canonic
         if missing:
             raise ValueError(f"{path} missing emg2pose timeseries fields: {sorted(missing)}")
         data = timeseries[:]
+        emg, time_s = np.asarray(data["emg"]), np.asarray(data["time"])
+        if len(emg) == 0:
+            raise ValueError("emg2pose records must contain at least one sample")
+        joint_angles = np.asarray(data["joint_angles"])
+        if joint_angles.ndim == 0 or joint_angles.shape[0] != len(emg):
+            raise ValueError("joint_angles must align with EMG samples")
+        if not np.issubdtype(joint_angles.dtype, np.number) or not np.isfinite(joint_angles).all():
+            raise ValueError("joint_angles must be finite numeric values")
+        if "no_ik_failure" in fields:
+            no_ik_failure = np.asarray(data["no_ik_failure"])
+            if no_ik_failure.ndim == 0 or no_ik_failure.shape[0] != len(emg):
+                raise ValueError("no_ik_failure must align with EMG samples")
         metadata = {str(key): _decode_value(value) for key, value in group.attrs.items()}
         subject_raw = str(metadata.get("subject_id", path.parent.name))
         session_raw = str(metadata.get("session_id", path.stem))
-        labels: dict[str, Any] = {"joint_angles": data["joint_angles"]}
+        labels: dict[str, Any] = {"joint_angles": joint_angles}
         if "no_ik_failure" in fields:
             labels["no_ik_failure"] = data["no_ik_failure"]
         if "stage" in metadata:
@@ -186,15 +272,15 @@ def _read_emg2pose(path: str | Path, official_split: str = "unknown") -> Canonic
         return CanonicalRecord(
             dataset_id="emg2pose", task_id="pose", subject_id=f"emg2pose:{subject_raw}",
             session_id=f"emg2pose:{session_raw}", side=str(metadata.get("side", "unknown")), pair_id="",
-            official_split=official_split, source_file=str(path.resolve()), emg=np.asarray(data["emg"]),
-            time_s=np.asarray(data["time"]), labels=labels,
-            source_meta={"source_group": "emg2pose", "source_timeseries": "emg2pose/timeseries", "attributes": metadata},
+            official_split=official_split, source_file=source_file or path.name, source_path=str(path.resolve()), emg=emg,
+            time_s=time_s, labels=labels,
+            source_meta={"source_group": "emg2pose", "source_timeseries": "emg2pose/timeseries", "attributes": metadata, "source_time_origin_s": float(time_s[0])},
             preprocessing={"converter_transformations": ["time_s shifted to record-relative origin"]},
         )
 
 
-def convert_file(source_path: str | Path, output_root: str | Path, *, official_split: str = "unknown", overwrite: bool = False) -> dict[str, object]:
-    record = _read_emg2pose(source_path, official_split)
+def convert_file(source_path: str | Path, output_root: str | Path, *, official_split: str = "unknown", overwrite: bool = False, source_file: str | None = None) -> dict[str, object]:
+    record = _read_emg2pose(source_path, official_split, source_file)
     relative_path = _output_relative_path(record)
     _write_record(Path(output_root) / relative_path, record, overwrite=overwrite)
     return _build_manifest_row(record, relative_path)
@@ -215,6 +301,12 @@ def _split_lookup(csv_path: str | Path | None) -> dict[str, str]:
 
 def run_conversion(input_root: str | Path, output_root: str | Path, *, split: str | None = None, splits_csv: str | Path | None = None, overwrite: bool = False) -> list[dict[str, object]]:
     input_root, output_root = Path(input_root), Path(output_root)
+    try:
+        output_root.resolve().relative_to(input_root.resolve())
+    except ValueError:
+        pass
+    else:
+        raise ValueError("output-root must not be nested under input-root")
     lookup = _split_lookup(splits_csv)
     rows: list[dict[str, object]] = []
     for source_path in sorted(input_root.rglob("*.h5")):
@@ -222,8 +314,8 @@ def run_conversion(input_root: str | Path, output_root: str | Path, *, split: st
         official_split = lookup.get(relative_source, lookup.get(source_path.name, "unknown"))
         if split is not None and official_split != split:
             continue
-        row = convert_file(source_path, output_root, official_split=official_split, overwrite=overwrite)
-        _append_manifest_row(output_root / "manifest.csv", row)
+        row = convert_file(source_path, output_root, official_split=official_split, overwrite=overwrite, source_file=relative_source)
+        _append_manifest_rows(output_root / "manifest.csv", [row])
         rows.append(row)
     return rows
 
