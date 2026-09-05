@@ -39,6 +39,7 @@ class CanonicalRecord:
     pair_id: str
     official_split: str
     source_file: str
+    source_path: str
     emg: np.ndarray
     time_s: np.ndarray
     labels: dict[str, Any]
@@ -183,6 +184,16 @@ def _required_value(row: dict[str, Any], names: tuple[str, ...], label: str) -> 
     raise ValueError(f"{label} row lacks one of {names}")
 
 
+def _finite_float(value: Any, label: str) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{label} must be numeric") from error
+    if not np.isfinite(number):
+        raise ValueError(f"{label} must be finite")
+    return number
+
+
 def _read_gni(path: str | Path, official_split: str) -> CanonicalRecord:
     path = Path(path)
     with h5py.File(path, "r") as h5:
@@ -210,12 +221,16 @@ def _read_gni(path: str | Path, official_split: str) -> CanonicalRecord:
         if len(emg) == 0:
             raise ValueError("GNI records must contain at least one sample")
         stages = _read_gni_table(path, "stages")
-        labels: dict[str, Any] = {"events": [{"name": str(_required_value(row, ("name", "gesture"), "gesture")), "time_s": float(_required_value(row, ("time", "time_s"), "gesture")) - float(time_s[0])} for row in _read_gni_table(path, "prompts")]}
+        prompt_rows = _read_gni_table(path, "prompts")
+        if not prompt_rows:
+            raise ValueError("Discrete gesture records require prompt/event rows")
+        origin = _finite_float(time_s[0], "GNI time origin")
+        labels: dict[str, Any] = {"events": [{"name": str(_required_value(row, ("name", "gesture"), "gesture")), "time_s": _finite_float(_required_value(row, ("time", "time_s"), "gesture"), "gesture time") - origin} for row in prompt_rows]}
         if len(stages) == 1 and "stage" in stages[0]:
             labels["stage"] = stages[0]["stage"]
         subject_raw = str(metadata.get("subject_id", path.parent.name))
         session_raw = str(metadata.get("session_id", path.stem))
-        return CanonicalRecord(DATASET_ID, TASK_ID, f"{DATASET_ID}:{subject_raw}", f"{DATASET_ID}:{session_raw}", str(metadata.get("side", "dominant")), "", official_split, str(path.resolve()), emg, time_s, labels, {"source_dataset": "data", "emg_field": emg_field, "attributes": metadata, "stages": stages}, {"converter_transformations": ["time_s shifted to record-relative origin"]})
+        return CanonicalRecord(DATASET_ID, TASK_ID, f"{DATASET_ID}:{subject_raw}", f"{DATASET_ID}:{session_raw}", str(metadata.get("side", "dominant")), "", official_split, path.name, str(path.resolve()), emg, time_s, labels, {"source_dataset": "data", "emg_field": emg_field, "attributes": metadata, "source_time_origin_s": origin, "prompts": prompt_rows, "events": prompt_rows, "stages": stages}, {"converter_transformations": ["time_s shifted to record-relative origin"]})
 
 
 def _safe_component(value: str) -> str:
@@ -236,7 +251,7 @@ def _source_sha256(path: str | Path) -> str:
 
 
 def _manifest_row(record: CanonicalRecord, relative_path: Path) -> dict[str, Any]:
-    return {"path": relative_path.as_posix(), "dataset_id": record.dataset_id, "task_id": record.task_id, "subject_id": record.subject_id, "session_id": record.session_id, "side": record.side, "pair_id": record.pair_id, "official_split": record.official_split, "sample_count": int(len(record.emg)), "duration_s": float(record.time_s[-1] - record.time_s[0]), "source_file": record.source_file, "source_sha256": _source_sha256(record.source_file)}
+    return {"path": relative_path.as_posix(), "dataset_id": record.dataset_id, "task_id": record.task_id, "subject_id": record.subject_id, "session_id": record.session_id, "side": record.side, "pair_id": record.pair_id, "official_split": record.official_split, "sample_count": int(len(record.emg)), "duration_s": float(record.time_s[-1] - record.time_s[0]), "source_file": record.source_file, "source_sha256": _source_sha256(record.source_path)}
 
 
 def _append_manifest_row(path: str | Path, row: dict[str, Any]) -> None:
@@ -277,8 +292,9 @@ def _split_lookup(csv_path: str | Path | None) -> dict[str, str]:
         return {str(row[key_column]).replace("\\", "/"): str(row["split"]) for row in rows}
 
 
-def convert_file(source_path: str | Path, output_root: str | Path, *, official_split: str = "unknown", overwrite: bool = False) -> dict[str, object]:
+def convert_file(source_path: str | Path, output_root: str | Path, *, official_split: str = "unknown", overwrite: bool = False, source_file: str | None = None) -> dict[str, object]:
     record = _read_gni(source_path, official_split)
+    record.source_file = source_file or Path(source_path).name
     relative_path = _output_relative_path(record)
     _write_record(Path(output_root) / relative_path, record, overwrite=overwrite)
     return _manifest_row(record, relative_path)
@@ -299,7 +315,7 @@ def run_conversion(input_root: str | Path, output_root: str | Path, *, split: st
         official_split = lookup.get(relative_source, lookup.get(source_path.name, "unknown"))
         if split is not None and official_split != split:
             continue
-        row = convert_file(source_path, output_root, official_split=official_split, overwrite=overwrite)
+        row = convert_file(source_path, output_root, official_split=official_split, overwrite=overwrite, source_file=relative_source)
         _append_manifest_row(output_root / "manifest.csv", row)
         rows.append(row)
     return rows

@@ -85,6 +85,13 @@ def _required(row: dict[str, Any], names: tuple[str, ...], kind: str) -> Any:
     raise ValueError(f"{kind} row lacks one of {names}")
 
 
+def _finite_float(value: Any, label: str) -> float:
+    try: number = float(value)
+    except (TypeError, ValueError) as error: raise ValueError(f"{label} must be numeric") from error
+    if not np.isfinite(number): raise ValueError(f"{label} must be finite")
+    return number
+
+
 def _read_gni(path: str | Path, official_split: str) -> dict[str, Any]:
     path = Path(path)
     with h5py.File(path, "r") as h5:
@@ -100,10 +107,17 @@ def _read_gni(path: str | Path, official_split: str) -> dict[str, Any]:
         emg, time_s = np.asarray(data[emg_field]), np.asarray(data["time"])
         if time_s.ndim != 1 or len(time_s) != len(emg): raise ValueError("GNI time must be a T-length vector aligned with EMG")
         if len(emg) == 0: raise ValueError("GNI records must contain at least one sample")
-    stages = _rows(path, "stages")
-    labels: dict[str, Any] = {"prompts": [{"text": str(_required(row, ("prompt", "text"), "handwriting prompt")), "start_s": float(_required(row, ("start", "start_s"), "handwriting prompt")) - float(time_s[0]), "end_s": float(_required(row, ("end", "end_s"), "handwriting prompt")) - float(time_s[0])} for row in _rows(path, "prompts")]}
+    stages = _rows(path, "stages"); prompt_rows = _rows(path, "prompts")
+    if not prompt_rows: raise ValueError("Handwriting records require prompt rows")
+    origin = _finite_float(time_s[0], "GNI time origin"); prompts = []
+    for row in prompt_rows:
+        start = _finite_float(_required(row, ("start", "start_s"), "handwriting prompt"), "handwriting prompt start")
+        end = _finite_float(_required(row, ("end", "end_s"), "handwriting prompt"), "handwriting prompt end")
+        if start > end: raise ValueError("handwriting prompt start must not exceed end")
+        prompts.append({"text": str(_required(row, ("prompt", "text"), "handwriting prompt")), "start_s": start - origin, "end_s": end - origin})
+    labels: dict[str, Any] = {"prompts": prompts}
     if len(stages) == 1 and "stage" in stages[0]: labels["stage"] = stages[0]["stage"]
-    return {"dataset_id": DATASET_ID, "task_id": TASK_ID, "subject_id": f"{DATASET_ID}:{metadata.get('subject_id', path.parent.name)}", "session_id": f"{DATASET_ID}:{metadata.get('session_id', path.stem)}", "side": str(metadata.get("side", "dominant")), "pair_id": "", "official_split": official_split, "source_file": str(path.resolve()), "emg": emg, "time_s": time_s, "labels": labels, "source_meta": {"source_dataset": "data", "emg_field": emg_field, "attributes": metadata, "stages": stages}, "preprocessing": {"converter_transformations": ["time_s shifted to record-relative origin"]}}
+    return {"dataset_id": DATASET_ID, "task_id": TASK_ID, "subject_id": f"{DATASET_ID}:{metadata.get('subject_id', path.parent.name)}", "session_id": f"{DATASET_ID}:{metadata.get('session_id', path.stem)}", "side": str(metadata.get("side", "dominant")), "pair_id": "", "official_split": official_split, "source_file": path.name, "source_path": str(path.resolve()), "emg": emg, "time_s": time_s, "labels": labels, "source_meta": {"source_dataset": "data", "emg_field": emg_field, "attributes": metadata, "source_time_origin_s": origin, "prompts": prompt_rows, "stages": stages}, "preprocessing": {"converter_transformations": ["time_s shifted to record-relative origin"]}}
 
 
 def _safe(value: str) -> str:
@@ -149,7 +163,7 @@ def _sha256(path: str | Path) -> str:
 
 
 def _manifest(record: dict[str, Any], relative: Path) -> dict[str, Any]:
-    return {"path": relative.as_posix(), **{key: record[key] for key in ("dataset_id", "task_id", "subject_id", "session_id", "side", "pair_id", "official_split", "source_file")}, "sample_count": int(len(record["emg"])), "duration_s": float(record["time_s"][-1] - record["time_s"][0]), "source_sha256": _sha256(record["source_file"])}
+    return {"path": relative.as_posix(), **{key: record[key] for key in ("dataset_id", "task_id", "subject_id", "session_id", "side", "pair_id", "official_split", "source_file")}, "sample_count": int(len(record["emg"])), "duration_s": float(record["time_s"][-1] - record["time_s"][0]), "source_sha256": _sha256(record["source_path"])}
 
 
 def _append(path: str | Path, row: dict[str, Any]) -> None:
@@ -176,8 +190,8 @@ def _splits(path: str | Path | None) -> dict[str, str]:
         return {str(row[column]).replace("\\", "/"): str(row["split"]) for row in rows}
 
 
-def convert_file(source_path: str | Path, output_root: str | Path, *, official_split: str = "unknown", overwrite: bool = False) -> dict[str, object]:
-    record = _read_gni(source_path, official_split); relative = _relative(record); _write(Path(output_root) / relative, record, overwrite=overwrite); return _manifest(record, relative)
+def convert_file(source_path: str | Path, output_root: str | Path, *, official_split: str = "unknown", overwrite: bool = False, source_file: str | None = None) -> dict[str, object]:
+    record = _read_gni(source_path, official_split); record["source_file"] = source_file or Path(source_path).name; relative = _relative(record); _write(Path(output_root) / relative, record, overwrite=overwrite); return _manifest(record, relative)
 
 
 def run_conversion(input_root: str | Path, output_root: str | Path, *, split: str | None = None, splits_csv: str | Path | None = None, overwrite: bool = False) -> list[dict[str, object]]:
@@ -191,7 +205,7 @@ def run_conversion(input_root: str | Path, output_root: str | Path, *, split: st
     for source in sorted(input_root.rglob("*.h5")):
         official_split = lookup.get(source.relative_to(input_root).as_posix(), lookup.get(source.name, "unknown"))
         if split is None or official_split == split:
-            row = convert_file(source, output_root, official_split=official_split, overwrite=overwrite); _append(output_root / "manifest.csv", row); results.append(row)
+            row = convert_file(source, output_root, official_split=official_split, overwrite=overwrite, source_file=source.relative_to(input_root).as_posix()); _append(output_root / "manifest.csv", row); results.append(row)
     return results
 
 
