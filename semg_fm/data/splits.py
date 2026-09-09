@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 
 import pandas as pd
 
@@ -17,7 +18,11 @@ def _validate_ratios(ratios):
         values = tuple(float(value) for value in ratios)
     except (TypeError, ValueError) as exc:
         raise ValueError("ratios must contain exactly three positive values summing to 1.0") from exc
-    if len(values) != 3 or any(value <= 0 for value in values) or abs(sum(values) - 1.0) > RATIO_TOLERANCE:
+    if (
+        len(values) != 3
+        or any(not math.isfinite(value) or value <= 0 for value in values)
+        or abs(sum(values) - 1.0) > RATIO_TOLERANCE
+    ):
         raise ValueError("ratios must contain exactly three positive values summing to 1.0")
     return values
 

@@ -35,6 +35,11 @@ def test_invalid_ratios_fail(manifest_frame):
         assign_group_splits(manifest_frame, seed=17, ratios=(0.7, 0.2, 0.2))
 
 
+def test_nonfinite_ratios_fail(manifest_frame):
+    with pytest.raises(ValueError, match="ratios"):
+        assign_group_splits(manifest_frame, seed=17, ratios=(float("nan"), 0.2, 0.8))
+
+
 def test_forced_split_leak_raises(manifest_frame):
     leaked = manifest_frame.assign(split=["train", "test", "train", "val"])
     with pytest.raises(ValueError, match="leak"):
