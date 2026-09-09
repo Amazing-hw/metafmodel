@@ -104,7 +104,10 @@ def test_typing_preserves_pair_id_for_each_wrist(canonical_meta_root):
     assert {item["side"] for item in items} == {"left", "right"}
     assert {item["pair_id"] for item in items} == {"pair-1"}
     assert all("pair_positive" not in item for item in items)
-    assert ds[1]["keystrokes"] == [("a", pytest.approx(0.05), pytest.approx(0.051))]
+    window = ds[1]
+    assert window["keystrokes"] == [("a", pytest.approx(0.05), pytest.approx(0.051))]
+    assert window["prompt_start_s"] == pytest.approx(-0.1)
+    assert window["prompt_end_s"] == pytest.approx(0.1995)
 
 
 def test_wrist_targets_are_name_keyed_and_aligned(canonical_meta_root):

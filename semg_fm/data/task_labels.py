@@ -133,6 +133,10 @@ def parse_target(task_id: str, h5: h5py.File, start_s: float, end_s: float, star
                 raise ValueError("keystroke times must be finite and ordered")
             if start_s <= press_s < end_s:
                 keystrokes.append((str(_decode(row["key"])), press_s - start_s, release_s - start_s))
-        return {"keystrokes": keystrokes, **_prompt_target(h5, start_s, end_s)}
+        prompt = _prompt_target(h5, start_s, end_s)
+        for name in ("prompt_start_s", "prompt_end_s"):
+            if prompt[name] is not None:
+                prompt[name] -= start_s
+        return {"keystrokes": keystrokes, **prompt}
 
     raise ValueError(f"Unsupported task_id: {task_id}")
