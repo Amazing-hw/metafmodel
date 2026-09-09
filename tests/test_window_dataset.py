@@ -146,6 +146,20 @@ def test_gapped_record_clock_controls_the_open_window_end(canonical_meta_root):
     assert ds[1]["events"] == [("fist", pytest.approx(0.12))]
 
 
+def test_adjacent_clock_windows_do_not_drop_events_between_midpoint_and_next_sample(canonical_meta_root):
+    path = canonical_meta_root / "discrete_gesture" / "discrete_gesture_right.h5"
+    with h5py.File(path, "r+") as h5:
+        events = h5["labels/events"][:]
+        events["time_s"] = 0.0999
+        h5["labels/events"][:] = events
+    ds = CanonicalWindowDataset.from_manifest(
+        _task_manifest(canonical_meta_root, "discrete_gesture"), split="train", window_ms=100,
+        stride_ms=100, root=canonical_meta_root,
+    )
+    adjacent_events = ds[0]["events"] + ds[1]["events"]
+    assert [name for name, _ in adjacent_events] == ["fist"]
+
+
 def test_typing_preserves_pair_id_for_each_wrist(canonical_meta_root):
     ds = CanonicalWindowDataset.from_manifest(
         _task_manifest(canonical_meta_root, "typing"), split="train", window_ms=100,

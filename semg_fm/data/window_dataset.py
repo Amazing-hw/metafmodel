@@ -120,9 +120,9 @@ class CanonicalWindowDataset(Dataset):
         with h5py.File(path, "r") as h5:
             emg_dataset, time_dataset, sample_rate_hz = _canonical_signal_datasets(h5, record, path)
             emg = np.asarray(emg_dataset[start_index:end_index])
-            # The interval is [first selected timestamp, midpoint after its final sample).
-            # A following stored timestamp defines that midpoint; at record end, the prior
-            # selected interval provides the local extrapolation for the open boundary.
+            # Windows are contiguous half-open clock intervals. A nonterminal window ends
+            # exactly at its successor's first timestamp; the final window extrapolates a
+            # local half interval from its two final selected timestamps.
             time_with_boundary = np.asarray(time_dataset[start_index:min(end_index + 1, time_dataset.shape[0])])
             time_s = time_with_boundary[: end_index - start_index]
             if emg.shape[0] != end_index - start_index:
@@ -137,7 +137,7 @@ class CanonicalWindowDataset(Dataset):
                 raise ValueError(f"{path} selected time_s slice must be monotonic")
             start_s = float(time_s[0])
             if time_with_boundary.shape[0] > time_s.shape[0]:
-                end_s = float((time_s[-1] + time_with_boundary[-1]) / 2)
+                end_s = float(time_with_boundary[-1])
             elif time_s.shape[0] > 1:
                 end_s = float(time_s[-1] + (time_s[-1] - time_s[-2]) / 2)
             else:
