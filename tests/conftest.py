@@ -6,6 +6,76 @@ import pytest
 
 
 @pytest.fixture
+def canonical_meta_root(tmp_path):
+    """Small canonical FM dataset used by manifest and converter tests."""
+    import h5py
+
+    root = tmp_path / "canonical"
+    root.mkdir()
+    records = []
+    tasks = ["pose", "typing", "discrete_gesture", "handwriting", "wrist_angle"]
+    for task in tasks:
+        sides = ["left", "right"] if task == "typing" else ["right"]
+        for side in sides:
+            task_dir = root / task
+            task_dir.mkdir(exist_ok=True)
+            path = task_dir / f"{task}_{side}.h5"
+            t = np.arange(4, dtype=np.float64) / 2000.0
+            signal = np.full((4, 16), 0.1, dtype=np.float32)
+            with h5py.File(path, "w") as h5:
+                signal_group = h5.create_group("signal")
+                signal_group.create_dataset("emg", data=signal)
+                signal_group.create_dataset("time_s", data=t)
+                attrs = {
+                    "dataset_id": "canonical",
+                    "task_id": task,
+                    "subject_id": "subject-1",
+                    "session_id": f"session-{task}",
+                    "side": side,
+                    "pair_id": "pair-1" if task == "typing" else "",
+                    "official_split": "train",
+                    "sample_rate_hz": 2000.0,
+                }
+                for key, value in attrs.items():
+                    h5.attrs[key] = value
+                if task == "pose":
+                    labels = h5.create_group("labels")
+                    labels.create_dataset("joint_angles", data=np.zeros((4, 3), dtype=np.float32))
+                    labels.create_dataset("no_ik_failure", data=np.ones(4, dtype=np.bool_))
+                elif task == "typing":
+                    labels = h5.create_group("labels")
+                    text = h5py.string_dtype("utf-8")
+                    labels.create_dataset("keystrokes", data=np.array([("a", 0.0, 0.1)], dtype=[("key", text), ("press_s", np.float64), ("release_s", np.float64)]))
+                    labels.create_dataset("prompts", data=np.array([("a", 0.0, 0.1)], dtype=[("text", text), ("start_s", np.float64), ("end_s", np.float64)]))
+                elif task == "discrete_gesture":
+                    labels = h5.create_group("labels")
+                    text = h5py.string_dtype("utf-8")
+                    labels.create_dataset("events", data=np.array([("fist", 0.1)], dtype=[("name", text), ("time_s", np.float64)]))
+                elif task == "handwriting":
+                    labels = h5.create_group("labels")
+                    text = h5py.string_dtype("utf-8")
+                    labels.create_dataset("prompts", data=np.array([("a", 0.0, 0.1)], dtype=[("text", text), ("start_s", np.float64), ("end_s", np.float64)]))
+                else:
+                    labels = h5.create_group("labels")
+                    targets = labels.create_group("targets")
+                    targets.create_dataset("flexion_extension", data=np.arange(4, dtype=np.float32))
+                records.append({
+                    "path": str(path.relative_to(root)), "dataset_id": "canonical", "task_id": task,
+                    "subject_id": "subject-1", "session_id": f"session-{task}", "side": side,
+                    "pair_id": "pair-1" if task == "typing" else "", "official_split": "train",
+                    "sample_count": 4, "duration_s": 0.0015, "source_file": path.name,
+                    "source_sha256": "0" * 64,
+                })
+    pd.DataFrame(records).to_csv(root / "manifest.csv", index=False)
+    return root
+
+
+@pytest.fixture
+def canonical_manifest_frame(canonical_meta_root):
+    return pd.read_csv(canonical_meta_root / "manifest.csv", keep_default_na=False)
+
+
+@pytest.fixture
 def emg2pose_h5(tmp_path):
     source_path = tmp_path / "user_1" / "session_1.h5"
     source_path.parent.mkdir()
