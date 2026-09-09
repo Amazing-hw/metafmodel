@@ -20,8 +20,8 @@ def canonical_meta_root(tmp_path):
             task_dir = root / task
             task_dir.mkdir(exist_ok=True)
             path = task_dir / f"{task}_{side}.h5"
-            t = np.arange(4, dtype=np.float64) / 2000.0
-            signal = np.full((4, 16), 0.1, dtype=np.float32)
+            t = np.arange(600, dtype=np.float64) / 2000.0
+            signal = np.full((600, 16), 0.1, dtype=np.float32)
             with h5py.File(path, "w") as h5:
                 signal_group = h5.create_group("signal")
                 signal_group.create_dataset("emg", data=signal)
@@ -43,30 +43,33 @@ def canonical_meta_root(tmp_path):
                     h5.attrs[key] = value
                 if task == "pose":
                     labels = h5.create_group("labels")
-                    labels.create_dataset("joint_angles", data=np.zeros((4, 3), dtype=np.float32))
-                    labels.create_dataset("no_ik_failure", data=np.ones(4, dtype=np.bool_))
+                    labels.create_dataset("joint_angles", data=np.zeros((600, 3), dtype=np.float32))
+                    no_ik_failure = np.ones(600, dtype=np.bool_)
+                    no_ik_failure[3] = False
+                    labels.create_dataset("no_ik_failure", data=no_ik_failure)
                 elif task == "typing":
                     labels = h5.create_group("labels")
                     text = h5py.string_dtype("utf-8")
-                    labels.create_dataset("keystrokes", data=np.array([("a", 0.0, 0.1)], dtype=[("key", text), ("press_s", np.float64), ("release_s", np.float64)]))
-                    labels.create_dataset("prompts", data=np.array([("a", 0.0, 0.1)], dtype=[("text", text), ("start_s", np.float64), ("end_s", np.float64)]))
+                    labels.create_dataset("keystrokes", data=np.array([("a", 0.15, 0.151)], dtype=[("key", text), ("press_s", np.float64), ("release_s", np.float64)]))
+                    labels.create_dataset("prompts", data=np.array([("hello", 0.0, 0.2995)], dtype=[("text", text), ("start_s", np.float64), ("end_s", np.float64)]))
                 elif task == "discrete_gesture":
                     labels = h5.create_group("labels")
                     text = h5py.string_dtype("utf-8")
-                    labels.create_dataset("events", data=np.array([("fist", 0.1)], dtype=[("name", text), ("time_s", np.float64)]))
+                    labels.create_dataset("events", data=np.array([("fist", 0.15)], dtype=[("name", text), ("time_s", np.float64)]))
                 elif task == "handwriting":
                     labels = h5.create_group("labels")
                     text = h5py.string_dtype("utf-8")
-                    labels.create_dataset("prompts", data=np.array([("a", 0.0, 0.1)], dtype=[("text", text), ("start_s", np.float64), ("end_s", np.float64)]))
+                    labels.create_dataset("prompts", data=np.array([("hello", 0.0, 0.2995)], dtype=[("text", text), ("start_s", np.float64), ("end_s", np.float64)]))
                 else:
                     labels = h5.create_group("labels")
                     targets = labels.create_group("targets")
-                    targets.create_dataset("flexion_extension", data=np.arange(4, dtype=np.float32))
+                    targets.create_dataset("flexion_extension", data=np.arange(600, dtype=np.float32))
+                    targets.create_dataset("pronation", data=np.arange(600, dtype=np.float32))
                 labels.create_dataset("source_json", data=json.dumps({"task_id": task}), dtype=h5py.string_dtype("utf-8"))
                 meta = h5.create_group("meta")
                 meta.create_dataset("source_json", data=json.dumps({"source": "canonical"}), dtype=h5py.string_dtype("utf-8"))
                 quality = meta.create_group("quality")
-                quality.create_dataset("sample_count", data=4)
+                quality.create_dataset("sample_count", data=600)
                 quality.create_dataset("duration_s", data=float(t[-1]))
                 quality.create_dataset("nan_count", data=0)
                 quality.create_dataset("channel_rms", data=np.sqrt(np.mean(signal**2, axis=0)))
@@ -74,7 +77,7 @@ def canonical_meta_root(tmp_path):
                     "path": str(path.relative_to(root)), "dataset_id": "canonical", "task_id": task,
                     "subject_id": "subject-1", "session_id": f"session-{task}", "side": side,
                     "pair_id": "pair-1" if task == "typing" else "", "official_split": "train",
-                    "sample_count": 4, "duration_s": 0.0015, "source_file": path.name,
+                    "sample_count": 600, "duration_s": 0.2995, "source_file": path.name,
                     "source_sha256": "0" * 64,
                 })
     pd.DataFrame(records).to_csv(root / "manifest.csv", index=False)

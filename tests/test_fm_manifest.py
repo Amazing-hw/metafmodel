@@ -56,7 +56,7 @@ def test_canonical_fixture_has_root_schema_attributes(canonical_meta_root):
         assert h5.attrs["preprocessing_json"]
         assert h5["labels/source_json"].asstr()[()]
         assert h5["meta/source_json"].asstr()[()]
-        assert h5["meta/quality/sample_count"][()] == 4
-        assert h5["meta/quality/duration_s"][()] == pytest.approx(0.0015)
+        assert h5["meta/quality/sample_count"][()] == 600
+        assert h5["meta/quality/duration_s"][()] == pytest.approx(0.2995)
         assert h5["meta/quality/nan_count"][()] == 0
         assert h5["meta/quality/channel_rms"].shape == (16,)
