@@ -6,6 +6,7 @@ import torch
 from lightning import Trainer
 from torch.utils.data import DataLoader, Dataset
 
+from semg_fm.models import RingCrissCrossEncoder
 from semg_fm.lightning.pretrain_module import PretrainModule
 
 
@@ -85,3 +86,20 @@ def test_ema_teacher_is_saved_and_restored_exactly(tmp_path):
     assert restored.ema_updates == 1
     for key, value in before.items():
         assert torch.equal(value, restored.teacher.state_dict()[key])
+
+
+def test_direct_student_round_trip_serializes_complete_architecture(tmp_path):
+    student = RingCrissCrossEncoder(d_model=8, depth=1, heads=2, patch_samples=40)
+    module = PretrainModule(student=student, model_config={"d_model": 8})
+    trainer = _trainer()
+    trainer.fit(module, train_dataloaders=DataLoader(_TinyPretrainDataset(), batch_size=2, collate_fn=_collate))
+    path = tmp_path / "direct-student.ckpt"
+    trainer.save_checkpoint(path)
+
+    restored = PretrainModule.load_from_checkpoint(path)
+
+    assert restored.model_config == {
+        "d_model": 8, "depth": 1, "heads": 2, "patch_samples": 40,
+        "channels": 16, "dropout": 0.0,
+    }
+    assert restored.student.patch_samples == 40

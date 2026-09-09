@@ -1,5 +1,8 @@
 from hydra import compose, initialize_config_dir
 from pathlib import Path
+import pytest
+
+from semg_fm.config import validate_seed
 
 from semg_fm.config import validate_devices
 
@@ -21,6 +24,25 @@ def test_cpu_smoke_profile_disables_distributed_training():
     assert cfg.trainer.accelerator == "cpu"
     assert cfg.trainer.devices == 1
     assert cfg.trainer.strategy == "auto"
+
+
+def test_pretrain_default_declares_a_null_data_root_that_accepts_an_override():
+    with initialize_config_dir(version_base="1.3", config_dir=CONFIG_DIR):
+        default = compose(config_name="pretrain")
+        configured = compose(config_name="pretrain", overrides=["data.root=tests/fixtures/canonical_meta"])
+    assert default.data.root is None
+    assert configured.data.root == "tests/fixtures/canonical_meta"
+
+
+@pytest.mark.parametrize("seed", [True, -1, 1.2, "4"])
+def test_seed_validation_rejects_invalid_values(seed):
+    with pytest.raises(ValueError, match="seed"):
+        validate_seed(seed)
+
+
+def test_seed_validation_accepts_nonnegative_integer():
+    validate_seed(0)
+    validate_seed(17)
 
 
 def test_validate_devices_accepts_auto_and_supported_integer_range():

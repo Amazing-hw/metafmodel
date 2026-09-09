@@ -33,7 +33,9 @@ class PretrainModule(LightningModule):
         config.pop("name", None)
         if student is None:
             student = build_model(model_name, **config)
-        elif not config:
+        else:
+            # A supplied student is authoritative: never serialize a partial
+            # caller mapping that would make checkpoint reconstruction fail.
             config = _model_config(student)
         self.student = student
         self.teacher = copy.deepcopy(student)
@@ -48,7 +50,20 @@ class PretrainModule(LightningModule):
         self.learning_rate, self.weight_decay = float(learning_rate), float(weight_decay)
         self.warmup_steps, self.max_steps = int(warmup_steps), int(max_steps)
         self.register_buffer("_ema_updates", torch.zeros((), dtype=torch.long), persistent=True)
-        self.save_hyperparameters(ignore=["student"])
+        self.save_hyperparameters({
+            "model_name": self.model_name,
+            "model_config": self.model_config,
+            "mask_config": self.mask_config,
+            "kinematic_dim": kinematic_dim,
+            "latent_weight": self.latent_weight,
+            "ring_weight": self.ring_weight,
+            "kinematic_weight": self.kinematic_weight,
+            "ema_decay": self.ema_decay,
+            "learning_rate": self.learning_rate,
+            "weight_decay": self.weight_decay,
+            "warmup_steps": self.warmup_steps,
+            "max_steps": self.max_steps,
+        })
 
     @property
     def ema_updates(self) -> int:
