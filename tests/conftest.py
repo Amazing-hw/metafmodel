@@ -27,6 +27,7 @@ def canonical_meta_root(tmp_path):
                 signal_group.create_dataset("emg", data=signal)
                 signal_group.create_dataset("time_s", data=t)
                 attrs = {
+                    "schema_version": "1.0",
                     "dataset_id": "canonical",
                     "task_id": task,
                     "subject_id": "subject-1",
@@ -35,6 +36,8 @@ def canonical_meta_root(tmp_path):
                     "pair_id": "pair-1" if task == "typing" else "",
                     "official_split": "train",
                     "sample_rate_hz": 2000.0,
+                    "source_file": path.name,
+                    "preprocessing_json": "{}",
                 }
                 for key, value in attrs.items():
                     h5.attrs[key] = value

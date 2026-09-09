@@ -31,7 +31,7 @@ def load_manifest(manifest_path, root):
         raise ValueError(f"missing columns: {', '.join(missing)}")
 
     frame["resolved_path"] = frame["path"].map(lambda value: root / value)
-    absent = [str(path) for path in frame["resolved_path"] if not path.exists()]
+    absent = [str(path) for path in frame["resolved_path"] if not path.is_file()]
     if absent:
         preview = ", ".join(absent[:3])
         raise FileNotFoundError(f"missing record paths: {preview}")
