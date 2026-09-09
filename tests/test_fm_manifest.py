@@ -32,6 +32,21 @@ def test_manifest_rejects_directory_record_path(tmp_path):
         load_manifest(path, tmp_path)
 
 
+@pytest.mark.parametrize("record_path", ["C:/outside.h5", "../outside.h5"])
+def test_manifest_rejects_paths_outside_root(tmp_path, record_path):
+    path = tmp_path / "manifest.csv"
+    columns = {
+        "path": [record_path],
+        "dataset_id": ["canonical"], "task_id": ["pose"], "subject_id": ["s"],
+        "session_id": ["session"], "side": ["right"], "pair_id": [""],
+        "official_split": ["train"], "sample_count": [1], "duration_s": [0.0],
+        "source_file": ["outside.h5"], "source_sha256": ["0" * 64],
+    }
+    pd.DataFrame(columns).to_csv(path, index=False)
+    with pytest.raises(ValueError, match="outside root"):
+        load_manifest(path, tmp_path)
+
+
 def test_canonical_fixture_has_root_schema_attributes(canonical_meta_root):
     import h5py
 
@@ -39,3 +54,9 @@ def test_canonical_fixture_has_root_schema_attributes(canonical_meta_root):
         assert h5.attrs["schema_version"]
         assert h5.attrs["source_file"]
         assert h5.attrs["preprocessing_json"]
+        assert h5["labels/source_json"].asstr()[()]
+        assert h5["meta/source_json"].asstr()[()]
+        assert h5["meta/quality/sample_count"][()] == 4
+        assert h5["meta/quality/duration_s"][()] == pytest.approx(0.0015)
+        assert h5["meta/quality/nan_count"][()] == 0
+        assert h5["meta/quality/channel_rms"].shape == (16,)

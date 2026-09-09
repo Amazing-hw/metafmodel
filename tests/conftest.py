@@ -62,6 +62,14 @@ def canonical_meta_root(tmp_path):
                     labels = h5.create_group("labels")
                     targets = labels.create_group("targets")
                     targets.create_dataset("flexion_extension", data=np.arange(4, dtype=np.float32))
+                labels.create_dataset("source_json", data=json.dumps({"task_id": task}), dtype=h5py.string_dtype("utf-8"))
+                meta = h5.create_group("meta")
+                meta.create_dataset("source_json", data=json.dumps({"source": "canonical"}), dtype=h5py.string_dtype("utf-8"))
+                quality = meta.create_group("quality")
+                quality.create_dataset("sample_count", data=4)
+                quality.create_dataset("duration_s", data=float(t[-1]))
+                quality.create_dataset("nan_count", data=0)
+                quality.create_dataset("channel_rms", data=np.sqrt(np.mean(signal**2, axis=0)))
                 records.append({
                     "path": str(path.relative_to(root)), "dataset_id": "canonical", "task_id": task,
                     "subject_id": "subject-1", "session_id": f"session-{task}", "side": side,
