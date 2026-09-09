@@ -24,7 +24,29 @@ def test_root_make_splits_assigns_unknown_and_preserves_official(tmp_path):
         [sys.executable, "make_splits.py", "--manifest", str(manifest), "--root", str(tmp_path),
          "--output", str(output), "--seed", "17"], check=True,
     )
-    assert pd.read_csv(output).split.iloc[0] in {"train", "val", "test"}
+    written = pd.read_csv(output)
+    assert written.split.iloc[0] in {"train", "val", "test"}
+    assert "resolved_path" not in written.columns
+
+
+def test_output_is_independent_of_manifest_root(tmp_path):
+    roots = [tmp_path / "one", tmp_path / "two"]
+    outputs = []
+    for root in roots:
+        root.mkdir()
+        (root / "record.h5").write_bytes(b"x")
+        manifest = root / "manifest.csv"
+        pd.DataFrame(
+            {
+                "path": ["record.h5"], "dataset_id": ["d"], "task_id": ["t"], "subject_id": ["s"],
+                "session_id": ["x"], "side": ["right"], "pair_id": [""], "official_split": [""],
+                "sample_count": [1], "duration_s": [0.0], "source_file": ["record.h5"], "source_sha256": ["0" * 64],
+            }
+        ).to_csv(manifest, index=False)
+        output = root / "split.csv"
+        main(["--manifest", str(manifest), "--root", str(root), "--output", str(output), "--seed", "17"])
+        outputs.append(output.read_bytes())
+    assert outputs[0] == outputs[1]
 
 
 def test_invalid_official_split_is_rejected(tmp_path):

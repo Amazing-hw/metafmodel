@@ -27,6 +27,7 @@ def main(argv=None):
             frame.loc[empty], seed=args.seed, ratios=(0.8, 0.1, 0.1)
         )["split"].to_numpy()
     assert_no_leakage(assigned)
+    assigned = assigned.drop(columns=["resolved_path"], errors="ignore")
     assigned.to_csv(args.output, index=False, lineterminator="\n")
 
 
