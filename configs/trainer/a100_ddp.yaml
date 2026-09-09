@@ -1,0 +1,4 @@
+accelerator: gpu
+devices: auto
+strategy: auto
+precision: bf16-mixed

@@ -1,0 +1,7 @@
+defaults:
+  - data: canonical_meta
+  - model: ring_criss_cross
+  - trainer: a100_ddp
+  - _self_
+
+task: baseline

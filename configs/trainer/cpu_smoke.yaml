@@ -1,0 +1,5 @@
+accelerator: cpu
+devices: 1
+strategy: auto
+precision: 32-true
+fast_dev_run: true
