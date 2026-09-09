@@ -36,12 +36,6 @@ def _is_present(value) -> bool:
     return str(value).strip() != ""
 
 
-def _group_key(row):
-    if _is_present(row["pair_id"]):
-        return f"pair:{row['pair_id']}"
-    return f"subject:{row['dataset_id']}\x1f{row['subject_id']}"
-
-
 def assign_group_splits(frame: pd.DataFrame, seed: int, ratios=(0.8, 0.1, 0.1)) -> pd.DataFrame:
     """Return a copy with deterministic group-level ``split`` assignments."""
     missing = sorted(_REQUIRED_COLUMNS.difference(frame.columns))
@@ -49,14 +43,52 @@ def assign_group_splits(frame: pd.DataFrame, seed: int, ratios=(0.8, 0.1, 0.1)) 
         raise ValueError(f"missing columns: {', '.join(missing)}")
     values = _validate_ratios(ratios)
     result = frame.copy()
-    keys = result.apply(_group_key, axis=1)
+    parent = list(range(len(result)))
+
+    def find(item):
+        while parent[item] != item:
+            parent[item] = parent[parent[item]]
+            item = parent[item]
+        return item
+
+    def union(left, right):
+        left, right = find(left), find(right)
+        if left != right:
+            parent[right] = left
+
+    seen = {}
+    for position, (_, row) in enumerate(result.iterrows()):
+        subject_key = f"subject:{row['dataset_id']}\x1f{row['subject_id']}"
+        if subject_key in seen:
+            union(position, seen[subject_key])
+        else:
+            seen[subject_key] = position
+        if _is_present(row["pair_id"]):
+            pair_key = f"pair:{row['pair_id']}"
+            if pair_key in seen:
+                union(position, seen[pair_key])
+            else:
+                seen[pair_key] = position
+
+    component_keys = {}
+    for position, (_, row) in enumerate(result.iterrows()):
+        root = find(position)
+        keys = component_keys.setdefault(root, set())
+        keys.add(f"subject:{row['dataset_id']}\x1f{row['subject_id']}")
+        if _is_present(row["pair_id"]):
+            keys.add(f"pair:{row['pair_id']}")
     assignments = {}
     cumulative = (values[0], values[0] + values[1], 1.0)
-    for key in pd.unique(keys):
+    for keys in component_keys.values():
+        key = "\x1e".join(sorted(keys))
         digest = hashlib.sha256(f"{seed}:{key}".encode("utf-8")).digest()
         point = int.from_bytes(digest[:8], "big") / 2**64
         assignments[key] = _SPLITS[next(index for index, bound in enumerate(cumulative) if point < bound)]
-    result["split"] = keys.map(assignments).astype("string")
+    split_values = []
+    for position in range(len(result)):
+        keys = component_keys[find(position)]
+        split_values.append(assignments["\x1e".join(sorted(keys))])
+    result["split"] = pd.Series(split_values, index=result.index, dtype="string")
     return result
 
 
@@ -70,7 +102,6 @@ def assert_no_leakage(frame: pd.DataFrame) -> None:
         grouped = frame.loc[mask].groupby(key_name, dropna=False)["split"].nunique(dropna=False)
         if (grouped > 1).any():
             raise ValueError(f"leakage detected for {key_name}")
-    unpaired = frame.loc[~frame["pair_id"].map(_is_present)].copy()
-    grouped = unpaired.groupby(["dataset_id", "subject_id"], dropna=False)["split"].nunique(dropna=False)
+    grouped = frame.groupby(["dataset_id", "subject_id"], dropna=False)["split"].nunique(dropna=False)
     if (grouped > 1).any():
         raise ValueError("leakage detected for dataset/subject group")

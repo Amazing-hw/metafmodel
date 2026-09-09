@@ -16,9 +16,12 @@ def main(argv=None):
 
     frame = load_manifest(args.manifest, args.root)
     official = frame["official_split"].fillna("").astype(str).str.strip()
+    invalid = sorted(set(official) - {"", "unknown", "train", "val", "test"})
+    if invalid:
+        raise ValueError(f"invalid official_split values: {', '.join(invalid)}")
     assigned = frame.copy()
     assigned["split"] = official
-    empty = official == ""
+    empty = official.isin(["", "unknown"])
     if empty.any():
         assigned.loc[empty, "split"] = assign_group_splits(
             frame.loc[empty], seed=args.seed, ratios=(0.8, 0.1, 0.1)

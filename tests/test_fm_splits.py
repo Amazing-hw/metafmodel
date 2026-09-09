@@ -39,3 +39,29 @@ def test_forced_split_leak_raises(manifest_frame):
     leaked = manifest_frame.assign(split=["train", "test", "train", "val"])
     with pytest.raises(ValueError, match="leak"):
         assert_no_leakage(leaked)
+
+
+def test_subject_cannot_leak_across_pair_ids_or_unpaired_rows():
+    frame = pd.DataFrame(
+        {
+            "dataset_id": ["d", "d", "d"],
+            "subject_id": ["s", "s", "s"],
+            "pair_id": ["p1", "p2", ""],
+            "split": ["train", "val", "test"],
+        }
+    )
+    with pytest.raises(ValueError, match="leak"):
+        assert_no_leakage(frame)
+
+
+def test_connected_subject_pair_component_gets_one_split():
+    frame = pd.DataFrame(
+        {
+            "path": ["a", "b", "c"],
+            "dataset_id": ["d", "d", "d"],
+            "subject_id": ["s", "s", "s"],
+            "pair_id": ["p1", "p2", ""],
+        }
+    )
+    assigned = assign_group_splits(frame, seed=17, ratios=(0.7, 0.15, 0.15))
+    assert assigned.split.nunique() == 1
