@@ -93,6 +93,19 @@ def test_masked_latent_loss_rejects_nan_at_a_masked_position():
         masked_latent_loss(student, teacher, mask)
 
 
+def test_masked_latent_loss_is_finite_and_differentiable_for_fp16_zero_latents():
+    student = torch.zeros(1, 16, 2, 3, dtype=torch.float16, requires_grad=True)
+    teacher = torch.zeros(1, 16, 2, 3, dtype=torch.float16)
+    mask = torch.zeros(1, 16, 2, dtype=torch.bool)
+    mask[:, 0, 0] = True
+
+    loss = masked_latent_loss(student, teacher, mask)
+
+    assert torch.isfinite(loss)
+    loss.backward()
+    assert student.grad is not None and torch.isfinite(student.grad).all()
+
+
 def test_ring_equivariance_loss_is_zero_for_an_exact_circular_roll():
     field = torch.randn(2, 16, 4, 3, requires_grad=True)
     motion = field.mean(dim=1)
@@ -155,3 +168,20 @@ def test_kinematic_loss_rejects_nonfinite_or_incompatible_valid_targets():
         kinematic_loss(prediction, target, mask)
     with pytest.raises(ValueError):
         kinematic_loss(prediction, torch.randn(2, 4), mask)
+
+
+def test_mask_generator_uses_the_supplied_generators_device_for_sampling():
+    generator = torch.Generator(device="cpu").manual_seed(4)
+
+    assert MaskGenerator._sampling_device(generator) == torch.device("cpu")
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")
+def test_mask_generator_cpu_generator_can_deterministically_create_a_cuda_mask():
+    masker = MaskGenerator()
+
+    first = masker(2, 7, generator=torch.Generator().manual_seed(6), device="cuda")
+    second = masker(2, 7, generator=torch.Generator().manual_seed(6), device="cuda")
+
+    assert first.is_cuda
+    assert torch.equal(first, second)

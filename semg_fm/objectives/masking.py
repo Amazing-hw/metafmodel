@@ -46,34 +46,45 @@ class MaskGenerator:
         if batch_size < 1 or num_patches < 1:
             raise ValueError("batch_size and num_patches must be positive")
         output_device = torch.device("cpu") if device is None else torch.device(device)
-        mask = torch.zeros((batch_size, self.channels, num_patches), dtype=torch.bool, device=output_device)
+        sampling_device = self._sampling_device(generator)
+        mask = torch.zeros((batch_size, self.channels, num_patches), dtype=torch.bool, device=sampling_device)
         for batch_index in range(batch_size):
             if self.temporal_span:
-                start = self._randint(num_patches, generator, output_device)
-                indices = (torch.arange(min(self.temporal_span, num_patches), device=output_device) + start) % num_patches
+                start = self._randint(num_patches, generator, sampling_device)
+                indices = (torch.arange(min(self.temporal_span, num_patches), device=sampling_device) + start) % num_patches
                 mask[batch_index, :, indices] = True
             if self.ring_arc:
-                start = self._randint(self.channels, generator, output_device)
-                indices = (torch.arange(min(self.ring_arc, self.channels), device=output_device) + start) % self.channels
+                start = self._randint(self.channels, generator, sampling_device)
+                indices = (torch.arange(min(self.ring_arc, self.channels), device=sampling_device) + start) % self.channels
                 mask[batch_index, indices, :] = True
             if self.full_channel_probability:
-                full_channels = torch.rand(self.channels, generator=generator, device=output_device) < self.full_channel_probability
+                full_channels = torch.rand(self.channels, generator=generator, device=sampling_device) < self.full_channel_probability
                 mask[batch_index, full_channels, :] = True
             block_channels, block_patches = self.block_shape
             if block_channels and block_patches:
-                channel_start = self._randint(self.channels, generator, output_device)
-                patch_start = self._randint(num_patches, generator, output_device)
-                channels = (torch.arange(min(block_channels, self.channels), device=output_device) + channel_start) % self.channels
-                patches = (torch.arange(min(block_patches, num_patches), device=output_device) + patch_start) % num_patches
+                channel_start = self._randint(self.channels, generator, sampling_device)
+                patch_start = self._randint(num_patches, generator, sampling_device)
+                channels = (torch.arange(min(block_channels, self.channels), device=sampling_device) + channel_start) % self.channels
+                patches = (torch.arange(min(block_patches, num_patches), device=sampling_device) + patch_start) % num_patches
                 mask[batch_index, channels[:, None], patches[None, :]] = True
             if self.random_patch_probability:
-                mask[batch_index] |= torch.rand((self.channels, num_patches), generator=generator, device=output_device) < self.random_patch_probability
-            self._ensure_both_states(mask[batch_index], generator, output_device)
-        return mask
+                mask[batch_index] |= torch.rand((self.channels, num_patches), generator=generator, device=sampling_device) < self.random_patch_probability
+            self._ensure_both_states(mask[batch_index], generator, sampling_device)
+        return mask.to(output_device)
 
     @staticmethod
-    def _randint(upper: int, generator: torch.Generator | None, device: torch.device) -> int:
-        return int(torch.randint(upper, (1,), generator=generator, device=device).item())
+    def _randint(upper: int, generator: torch.Generator | None, device: torch.device) -> torch.Tensor:
+        return torch.randint(upper, (), generator=generator, device=device)
+
+    @staticmethod
+    def _sampling_device(generator: torch.Generator | None) -> torch.device:
+        """Choose a generator-compatible device without coupling it to output."""
+        if generator is None:
+            return torch.device("cpu")
+        try:
+            return torch.device(generator.device)
+        except (AttributeError, TypeError):
+            return torch.device("cpu")
 
     @staticmethod
     def _ensure_both_states(mask: torch.Tensor, generator: torch.Generator | None, device: torch.device) -> None:

@@ -18,8 +18,17 @@ def masked_latent_loss(student: torch.Tensor, teacher: torch.Tensor, mask: torch
     masked_teacher = teacher.detach()[mask]
     if not torch.isfinite(masked_student).all() or not torch.isfinite(masked_teacher).all():
         raise ValueError("masked student and teacher features must be finite")
-    normalized_student = F.normalize(masked_student, dim=-1)
-    normalized_teacher = F.normalize(masked_teacher, dim=-1)
+    computation_dtype = (
+        torch.float32
+        if masked_student.dtype in (torch.float16, torch.bfloat16)
+        else masked_student.dtype
+    )
+    normalized_student = F.normalize(
+        masked_student.to(computation_dtype), dim=-1, eps=torch.finfo(computation_dtype).eps
+    )
+    normalized_teacher = F.normalize(
+        masked_teacher.to(computation_dtype), dim=-1, eps=torch.finfo(computation_dtype).eps
+    )
     smooth_l1 = F.smooth_l1_loss(normalized_student, normalized_teacher)
     cosine = (1.0 - F.cosine_similarity(normalized_student, normalized_teacher, dim=-1)).mean()
     return smooth_l1 + cosine
