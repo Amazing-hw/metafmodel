@@ -12,22 +12,17 @@ from .ring_attention import RingMultiheadAttention
 class RingCrissCrossBlock(nn.Module):
     """Fuse temporal and ring attention computed from one normalized token grid."""
 
-    def __init__(self, d_model: int, heads: int, channels: int = 16, dropout: float = 0.0) -> None:
+    def __init__(self, d_model: int, heads: int, channels: int = 16) -> None:
         super().__init__()
         self.attention_norm = nn.LayerNorm(d_model)
-        self.temporal_attention = nn.MultiheadAttention(
-            d_model, heads, dropout=dropout, batch_first=True
-        )
+        self.temporal_attention = nn.MultiheadAttention(d_model, heads, dropout=0.0, batch_first=True)
         self.ring_attention = RingMultiheadAttention(d_model, heads, channels=channels)
         self.gate = nn.Linear(d_model, 2)
-        self.attention_dropout = nn.Dropout(dropout)
         self.ffn_norm = nn.LayerNorm(d_model)
         self.ffn = nn.Sequential(
             nn.Linear(d_model, 4 * d_model),
             nn.GELU(),
-            nn.Dropout(dropout),
             nn.Linear(4 * d_model, d_model),
-            nn.Dropout(dropout),
         )
 
     def fusion_weights(self, normalized_tokens: torch.Tensor) -> torch.Tensor:
@@ -41,17 +36,42 @@ class RingCrissCrossBlock(nn.Module):
     ) -> torch.Tensor:
         """Apply a pre-norm attention and pointwise-FFN residual pair."""
         batch, channels, patches, width = tokens.shape
+        if electrode_observed is None:
+            electrode_observed = torch.ones(
+                batch, channels, patches, dtype=torch.bool, device=tokens.device
+            )
+        elif electrode_observed.shape == (batch, channels):
+            electrode_observed = electrode_observed.to(device=tokens.device, dtype=torch.bool)
+            electrode_observed = electrode_observed.unsqueeze(-1).expand(-1, -1, patches)
+        elif electrode_observed.shape == (batch, channels, patches):
+            electrode_observed = electrode_observed.to(device=tokens.device, dtype=torch.bool)
+        else:
+            raise ValueError("electrode observation mask must have shape [B, C] or [B, C, N]")
         normalized = self.attention_norm(tokens)
+        sequence_observed = electrode_observed.reshape(batch * channels, patches)
+        key_padding_mask = ~sequence_observed
+        # MultiheadAttention produces NaNs when every key is padded. Let such
+        # sequences attend only for the computation, then zero their queries.
+        fully_padded = key_padding_mask.all(dim=1)
+        if fully_padded.any():
+            key_padding_mask = key_padding_mask.clone()
+            key_padding_mask[fully_padded] = False
         temporal_input = normalized.reshape(batch * channels, patches, width)
         temporal_output, _ = self.temporal_attention(
-            temporal_input, temporal_input, temporal_input, need_weights=False
+            temporal_input,
+            temporal_input,
+            temporal_input,
+            key_padding_mask=key_padding_mask,
+            need_weights=False,
         )
         temporal_output = temporal_output.reshape(batch, channels, patches, width)
+        token_observed = electrode_observed.unsqueeze(-1).to(temporal_output.dtype)
+        temporal_output = temporal_output * token_observed
         ring_output = self.ring_attention(normalized, electrode_observed=electrode_observed)
         weights = self.fusion_weights(normalized)
         fused = weights[..., :1] * temporal_output + weights[..., 1:] * ring_output
-        tokens = tokens + self.attention_dropout(fused)
-        return tokens + self.ffn(self.ffn_norm(tokens))
+        tokens = (tokens + fused) * token_observed
+        return (tokens + self.ffn(self.ffn_norm(tokens))) * token_observed
 
 
 class RingCrissCrossEncoder(nn.Module):
@@ -69,8 +89,8 @@ class RingCrissCrossEncoder(nn.Module):
         super().__init__()
         if depth < 1:
             raise ValueError("depth must be positive")
-        if not 0.0 <= dropout < 1.0:
-            raise ValueError("dropout must be in [0, 1)")
+        if dropout != 0.0:
+            raise ValueError("dropout must be 0.0 to preserve train-mode circular equivariance")
         if channels < 2:
             raise ValueError("channels must be at least 2")
 
@@ -83,7 +103,7 @@ class RingCrissCrossEncoder(nn.Module):
             channels=1, d_model=d_model, patch_samples=patch_samples
         )
         self.blocks = nn.ModuleList(
-            RingCrissCrossBlock(d_model, heads, channels=channels, dropout=dropout)
+            RingCrissCrossBlock(d_model, heads, channels=channels)
             for _ in range(depth)
         )
 
@@ -98,7 +118,10 @@ class RingCrissCrossEncoder(nn.Module):
         """Return ``z_eq`` [B, C, N, D] and masked-mean ``z_motion`` [B, N, D].
 
         Observation masks may describe electrodes as ``[B, C]``, patches as
-        ``[B, C, N]``, or individual input samples as ``[B, T, C]``.
+        ``[B, C, N]``, or individual input samples as ``[B, T, C]``.  Electrode
+        and patch masks are broadcast to input samples.  A sample mask makes a
+        patch valid when at least one sample in that patch is observed; masked
+        samples are zeroed before patch encoding in every case.
         """
         masks = [
             mask
@@ -116,10 +139,11 @@ class RingCrissCrossEncoder(nn.Module):
             raise ValueError("time length must be a positive multiple of patch_samples")
 
         patches = samples // self.patch_samples
-        observed = self._patch_observation_mask(
+        sample_observed, observed = self._observation_masks(
             masks[0] if masks else None, batch, samples, patches, emg.device
         )
-        channel_major = emg.transpose(1, 2).reshape(batch * channels, samples, 1)
+        masked_emg = emg * sample_observed.to(emg.dtype)
+        channel_major = masked_emg.transpose(1, 2).reshape(batch * channels, samples, 1)
         tokens = self.patch_encoder(channel_major).reshape(batch, channels, patches, self.d_model)
         for block in self.blocks:
             tokens = block(tokens, electrode_observed=observed)
@@ -128,21 +152,26 @@ class RingCrissCrossEncoder(nn.Module):
         z_motion = (tokens * pooled_weights).sum(dim=1) / pooled_weights.sum(dim=1).clamp_min(1.0)
         return {"z_eq": tokens, "z_motion": z_motion}
 
-    def _patch_observation_mask(
+    def _observation_masks(
         self,
         mask: torch.Tensor | None,
         batch: int,
         samples: int,
         patches: int,
         device: torch.device,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         if mask is None:
-            return torch.ones(batch, self.channels, patches, dtype=torch.bool, device=device)
-        if mask.shape == (batch, self.channels):
-            return mask.to(device=device, dtype=torch.bool).unsqueeze(-1).expand(-1, -1, patches)
-        if mask.shape == (batch, self.channels, patches):
-            return mask.to(device=device, dtype=torch.bool)
-        if mask.shape == (batch, samples, self.channels):
-            sample_mask = mask.to(device=device, dtype=torch.bool)
-            return sample_mask.reshape(batch, patches, self.patch_samples, self.channels).all(dim=2).permute(0, 2, 1)
-        raise ValueError("electrode observation mask must have shape [B, C], [B, C, N], or [B, T, C]")
+            sample_observed = torch.ones(batch, samples, self.channels, dtype=torch.bool, device=device)
+        elif mask.shape == (batch, self.channels):
+            sample_observed = mask.to(device=device, dtype=torch.bool).unsqueeze(1).expand(-1, samples, -1)
+        elif mask.shape == (batch, self.channels, patches):
+            patch_observed = mask.to(device=device, dtype=torch.bool)
+            sample_observed = patch_observed.permute(0, 2, 1).repeat_interleave(self.patch_samples, dim=1)
+        elif mask.shape == (batch, samples, self.channels):
+            sample_observed = mask.to(device=device, dtype=torch.bool)
+        else:
+            raise ValueError("electrode observation mask must have shape [B, C], [B, C, N], or [B, T, C]")
+        patch_observed = sample_observed.reshape(
+            batch, patches, self.patch_samples, self.channels
+        ).any(dim=2).permute(0, 2, 1)
+        return sample_observed, patch_observed
