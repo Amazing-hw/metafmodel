@@ -19,6 +19,32 @@ def test_pose_target_and_mask_are_sliced(tmp_path):
     assert result["target_mask"].tolist() == [False, True]
 
 
+@pytest.mark.parametrize(
+    ("joint_angles", "message"),
+    [(np.arange(4, dtype=np.float32), "rank-2"), (np.zeros((3, 2), dtype=np.float32), "does not align")],
+)
+def test_pose_rejects_non_matrix_or_misaligned_joint_angles(tmp_path, joint_angles, message):
+    path = tmp_path / "bad_pose.h5"
+    with h5py.File(path, "w") as h5:
+        h5.create_group("signal").create_dataset("emg", data=np.zeros((4, 16), dtype=np.float32))
+        h5.create_group("labels").create_dataset("joint_angles", data=joint_angles)
+    with h5py.File(path) as h5:
+        with pytest.raises(ValueError, match=message):
+            parse_target("pose", h5, 0.0, 0.001, 0, 2)
+
+
+def test_pose_rejects_nonfinite_joint_angles(tmp_path):
+    path = tmp_path / "nonfinite_pose.h5"
+    with h5py.File(path, "w") as h5:
+        h5.create_group("signal").create_dataset("emg", data=np.zeros((4, 16), dtype=np.float32))
+        joint_angles = np.zeros((4, 2), dtype=np.float32)
+        joint_angles[1, 0] = np.nan
+        h5.create_group("labels").create_dataset("joint_angles", data=joint_angles)
+    with h5py.File(path) as h5:
+        with pytest.raises(ValueError, match="finite"):
+            parse_target("pose", h5, 0.0, 0.001, 0, 2)
+
+
 def test_wrist_rejects_scalar_or_non_numeric_targets(tmp_path):
     path = tmp_path / "bad_wrist.h5"
     with h5py.File(path, "w") as h5:

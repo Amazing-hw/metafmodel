@@ -80,6 +80,10 @@ def parse_target(task_id: str, h5: h5py.File, start_s: float, end_s: float, star
         if "labels/joint_angles" not in h5:
             raise ValueError("pose record lacks labels/joint_angles")
         values = _numeric_slice(h5["labels/joint_angles"], "joint_angles", start_index, end_index, _time_length(h5))
+        if values.ndim != 2 or values.shape[1] == 0:
+            raise ValueError("joint_angles must be a rank-2 [T, D] array with D > 0")
+        if not np.isfinite(values).all():
+            raise ValueError("joint_angles must contain finite values")
         target_mask = np.ones(values.shape[0], dtype=np.bool_)
         if "labels/no_ik_failure" in h5:
             valid = _numeric_slice(

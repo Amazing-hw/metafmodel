@@ -1,4 +1,5 @@
 import h5py
+import numpy as np
 import pandas as pd
 import pytest
 import torch
@@ -93,6 +94,56 @@ def test_label_times_follow_the_record_clock_at_a_window_boundary(canonical_meta
     item = ds[1]
     assert item["start_s"] == pytest.approx(0.11)
     assert item["events"] == [("fist", pytest.approx(0.04))]
+
+
+@pytest.mark.parametrize(
+    ("dataset_name", "dtype", "expected"),
+    [("emg", np.float64, "float32"), ("time_s", np.float32, "float64")],
+)
+def test_dataset_rejects_noncanonical_signal_dtypes(canonical_meta_root, dataset_name, dtype, expected):
+    path = canonical_meta_root / "pose" / "pose_right.h5"
+    with h5py.File(path, "r+") as h5:
+        values = h5[f"signal/{dataset_name}"][:].astype(dtype)
+        del h5[f"signal/{dataset_name}"]
+        h5["signal"].create_dataset(dataset_name, data=values)
+    ds = CanonicalWindowDataset.from_manifest(
+        _task_manifest(canonical_meta_root, "pose"), split="train", window_ms=200,
+        stride_ms=100, root=canonical_meta_root,
+    )
+    with pytest.raises(ValueError, match=expected):
+        ds[0]
+
+
+def test_dataset_rejects_missing_or_mismatched_canonical_root_attributes(canonical_meta_root):
+    path = canonical_meta_root / "pose" / "pose_right.h5"
+    with h5py.File(path, "r+") as h5:
+        del h5.attrs["dataset_id"]
+    ds = CanonicalWindowDataset.from_manifest(
+        _task_manifest(canonical_meta_root, "pose"), split="train", window_ms=200,
+        stride_ms=100, root=canonical_meta_root,
+    )
+    with pytest.raises(ValueError, match="dataset_id"):
+        ds[0]
+    with h5py.File(path, "r+") as h5:
+        h5.attrs["dataset_id"] = "not-canonical"
+    with pytest.raises(ValueError, match="does not match manifest"):
+        ds[0]
+
+
+def test_gapped_record_clock_controls_the_open_window_end(canonical_meta_root):
+    path = canonical_meta_root / "discrete_gesture" / "discrete_gesture_right.h5"
+    with h5py.File(path, "r+") as h5:
+        time_s = h5["signal/time_s"][:]
+        time_s[201:] += np.arange(time_s.size - 201) * 0.0005
+        h5["signal/time_s"][:] = time_s
+        events = h5["labels/events"][:]
+        events["time_s"] = 0.22
+        h5["labels/events"][:] = events
+    ds = CanonicalWindowDataset.from_manifest(
+        _task_manifest(canonical_meta_root, "discrete_gesture"), split="train", window_ms=100,
+        stride_ms=100, root=canonical_meta_root,
+    )
+    assert ds[1]["events"] == [("fist", pytest.approx(0.12))]
 
 
 def test_typing_preserves_pair_id_for_each_wrist(canonical_meta_root):

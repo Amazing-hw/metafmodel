@@ -15,6 +15,11 @@ from .task_labels import parse_target
 
 
 OFFICIAL_SPLITS = frozenset({"train", "val", "test"})
+REQUIRED_ROOT_ATTRIBUTES = (
+    "dataset_id", "task_id", "subject_id", "session_id", "side", "pair_id",
+    "official_split", "sample_rate_hz",
+)
+MANIFEST_ATTRIBUTE_FIELDS = REQUIRED_ROOT_ATTRIBUTES[:-1]
 
 
 def _text(value: Any) -> str:
@@ -25,6 +30,36 @@ def _text(value: Any) -> str:
     if isinstance(value, np.generic):
         return str(value.item())
     return str(value)
+
+
+def _canonical_signal_datasets(h5: h5py.File, record: dict[str, Any], path: Path):
+    missing_attrs = [name for name in REQUIRED_ROOT_ATTRIBUTES if name not in h5.attrs]
+    if missing_attrs:
+        raise ValueError(f"{path} lacks required root attributes: {', '.join(missing_attrs)}")
+    for name in MANIFEST_ATTRIBUTE_FIELDS:
+        if _text(h5.attrs[name]) != record[name]:
+            raise ValueError(f"{path} root attribute {name} does not match manifest")
+    try:
+        sample_rate_hz = float(h5.attrs["sample_rate_hz"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{path} sample_rate_hz must be numeric") from exc
+    if not np.isfinite(sample_rate_hz) or sample_rate_hz <= 0:
+        raise ValueError(f"{path} has invalid sample_rate_hz")
+    if not np.isclose(sample_rate_hz, record["sample_rate_hz"]):
+        raise ValueError(f"{path} root attribute sample_rate_hz does not match manifest")
+    emg_dataset = h5.get("signal/emg")
+    time_dataset = h5.get("signal/time_s")
+    if not isinstance(emg_dataset, h5py.Dataset) or not isinstance(time_dataset, h5py.Dataset):
+        raise ValueError(f"{path} requires signal/emg and signal/time_s datasets")
+    if emg_dataset.dtype != np.dtype(np.float32):
+        raise ValueError(f"{path} signal/emg must have dtype float32")
+    if time_dataset.dtype != np.dtype(np.float64):
+        raise ValueError(f"{path} signal/time_s must have dtype float64")
+    if emg_dataset.ndim != 2 or emg_dataset.shape[1] != 16:
+        raise ValueError(f"{path} signal/emg must have shape [T, 16]")
+    if time_dataset.ndim != 1 or time_dataset.shape[0] != emg_dataset.shape[0]:
+        raise ValueError(f"{path} signal/time_s must have shape [T] aligned with signal/emg")
+    return emg_dataset, time_dataset, sample_rate_hz
 
 
 class CanonicalWindowDataset(Dataset):
@@ -71,6 +106,7 @@ class CanonicalWindowDataset(Dataset):
                 "task_id": _text(row["task_id"]), "record_id": _text(row.get("record_id", Path(row["path"]).stem)),
                 "subject_id": _text(row["subject_id"]), "session_id": _text(row["session_id"]),
                 "side": _text(row["side"]), "pair_id": _text(row["pair_id"]),
+                "official_split": _text(row["official_split"]),
                 "sample_count": sample_count, "sample_rate_hz": rate_hz,
             })
         return cls(records, window_ms, stride_ms)
@@ -82,27 +118,30 @@ class CanonicalWindowDataset(Dataset):
         path, start_index, end_index = self._index[index]
         record = self._records[path]
         with h5py.File(path, "r") as h5:
-            emg = np.asarray(h5["signal/emg"][start_index:end_index])
-            if "signal/time_s" not in h5:
-                raise ValueError(f"{path} lacks signal/time_s needed for label alignment")
-            time_s = np.asarray(h5["signal/time_s"][start_index:end_index])
-            if emg.ndim != 2 or emg.shape[1] != 16:
-                raise ValueError(f"{path} signal/emg must have shape [T, 16]")
+            emg_dataset, time_dataset, sample_rate_hz = _canonical_signal_datasets(h5, record, path)
+            emg = np.asarray(emg_dataset[start_index:end_index])
+            # The interval is [first selected timestamp, midpoint after its final sample).
+            # A following stored timestamp defines that midpoint; at record end, the prior
+            # selected interval provides the local extrapolation for the open boundary.
+            time_with_boundary = np.asarray(time_dataset[start_index:min(end_index + 1, time_dataset.shape[0])])
+            time_s = time_with_boundary[: end_index - start_index]
             if emg.shape[0] != end_index - start_index:
                 raise ValueError(f"{path} selected EMG slice has an unexpected length")
-            if not np.issubdtype(emg.dtype, np.number) or not np.isfinite(emg).all():
+            if not np.isfinite(emg).all():
                 raise ValueError(f"{path} selected EMG slice must be finite numeric values")
             if time_s.ndim != 1 or time_s.shape[0] != emg.shape[0]:
                 raise ValueError(f"{path} selected time_s slice must align with EMG")
-            if not np.issubdtype(time_s.dtype, np.number) or not np.isfinite(time_s).all():
+            if not np.isfinite(time_with_boundary).all():
                 raise ValueError(f"{path} selected time_s slice must be finite numeric values")
-            if time_s.shape[0] > 1 and np.any(np.diff(time_s) < 0):
+            if time_with_boundary.shape[0] > 1 and np.any(np.diff(time_with_boundary) < 0):
                 raise ValueError(f"{path} selected time_s slice must be monotonic")
-            sample_rate_hz = float(h5.attrs.get("sample_rate_hz", record["sample_rate_hz"]))
-            if not np.isfinite(sample_rate_hz) or sample_rate_hz <= 0:
-                raise ValueError(f"{path} has invalid sample_rate_hz")
             start_s = float(time_s[0])
-            end_s = start_s + (end_index - start_index) / sample_rate_hz
+            if time_with_boundary.shape[0] > time_s.shape[0]:
+                end_s = float((time_s[-1] + time_with_boundary[-1]) / 2)
+            elif time_s.shape[0] > 1:
+                end_s = float(time_s[-1] + (time_s[-1] - time_s[-2]) / 2)
+            else:
+                end_s = float(time_s[-1] + 0.5 / sample_rate_hz)
             item = {
                 "emg": torch.as_tensor(emg, dtype=torch.float32),
                 "sample_mask": torch.ones(emg.shape[0], dtype=torch.bool),
