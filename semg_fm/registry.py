@@ -7,12 +7,14 @@ from typing import Any
 
 from torch import nn
 
-from .models import BendrEncoder, RingCrissCrossEncoder, SupervisedTCN
+from .models import AEMGEncoder, BendrEncoder, CBraModEncoder, RingCrissCrossEncoder, SupervisedTCN
 
 MODEL_REGISTRY: dict[str, type[nn.Module]] = {
     "ring_criss_cross": RingCrissCrossEncoder,
     "supervised_tcn": SupervisedTCN,
     "bendr": BendrEncoder,
+    "cbramod": CBraModEncoder,
+    "aemg": AEMGEncoder,
 }
 
 
