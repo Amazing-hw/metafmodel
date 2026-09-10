@@ -286,7 +286,11 @@ class BendrPretrainingModel(nn.Module):
         """Encode ``emg`` and append a stable within-record contrastive loss."""
         outputs = self.encoder(emg, **kwargs)
         outputs["contrastive_loss"] = self.contrastive(
-            outputs["context"], outputs["target"], outputs["corruption_mask"], outputs["token_mask"]
+            outputs["context"],
+            outputs["target"],
+            outputs["corruption_mask"],
+            outputs["token_mask"],
+            generator=kwargs.get("generator"),
         )
         return outputs
 

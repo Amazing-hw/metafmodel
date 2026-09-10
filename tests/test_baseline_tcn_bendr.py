@@ -16,6 +16,7 @@ from hydra import compose, initialize_config_dir
 from semg_fm.models.bendr import (
     BendrEncoder,
     BendrLikeContrastiveLoss,
+    BendrPretrainingModel,
     same_sequence_negative_indices,
 )
 from semg_fm.models.supervised_tcn import SupervisedTCN
@@ -116,6 +117,51 @@ def test_bendr_contrastive_loss_is_finite_when_a_record_has_no_safe_negative():
     # The first record has one valid position only and is excluded rather than
     # borrowing a negative from the second record.
     assert objective.last_usable_queries == 1
+
+
+def test_bendr_all_invalid_tokens_are_zero_and_early_zero_loss_backpropagates_finitely():
+    encoder = BendrEncoder(d_model=8, depth=1, heads=2, patch_samples=20, dropout=0.0).eval()
+    objective = BendrLikeContrastiveLoss(num_negatives=2, temperature=0.2)
+    emg = torch.randn(2, 100, 16, requires_grad=True)
+
+    outputs = encoder(emg, valid_mask=torch.zeros(2, 100, dtype=torch.bool))
+    loss = objective(
+        outputs["context"], outputs["target"], outputs["corruption_mask"], outputs["token_mask"]
+    )
+    loss.backward()
+
+    for key in ("context", "target", "pooled"):
+        assert torch.isfinite(outputs[key]).all()
+        assert torch.equal(outputs[key], torch.zeros_like(outputs[key]))
+    assert torch.equal(outputs["token_mask"], torch.zeros_like(outputs["token_mask"]))
+    assert torch.isfinite(loss)
+    assert loss.item() == 0.0
+    assert emg.grad is not None and torch.isfinite(emg.grad).all()
+
+
+def test_bendr_pretraining_wrapper_uses_caller_generator_for_negative_sampling():
+    encoder = BendrEncoder(d_model=8, depth=1, heads=2, patch_samples=20, dropout=0.0).eval()
+    model = BendrPretrainingModel(encoder=encoder, num_negatives=2, temperature=0.2).eval()
+    emg = torch.randn(1, 100, 16)
+    corruption = torch.tensor([[True, True, True, False, False]])
+
+    expected_indices, expected_usable = same_sequence_negative_indices(
+        torch.ones(1, 5, dtype=torch.bool), num_negatives=2, generator=torch.Generator().manual_seed(31)
+    )
+    torch.manual_seed(9_999)
+    _ = torch.randn(1_000)
+    actual_indices, actual_usable = same_sequence_negative_indices(
+        torch.ones(1, 5, dtype=torch.bool), num_negatives=2, generator=torch.Generator().manual_seed(31)
+    )
+    assert torch.equal(actual_indices, expected_indices)
+    assert torch.equal(actual_usable, expected_usable)
+
+    first = model(emg, corruption_mask=corruption, generator=torch.Generator().manual_seed(31))
+    torch.manual_seed(9_999)
+    _ = torch.randn(1_000)
+    second = model(emg, corruption_mask=corruption, generator=torch.Generator().manual_seed(31))
+
+    torch.testing.assert_close(first["contrastive_loss"], second["contrastive_loss"])
 
 
 @pytest.mark.parametrize("model_name", ["supervised_tcn", "bendr"])
