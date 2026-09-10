@@ -145,6 +145,8 @@ def test_bendr_pretraining_wrapper_uses_caller_generator_for_negative_sampling()
     emg = torch.randn(1, 100, 16)
     corruption = torch.tensor([[True, True, True, False, False]])
 
+    torch.manual_seed(1)
+    _ = torch.randn(17)
     expected_indices, expected_usable = same_sequence_negative_indices(
         torch.ones(1, 5, dtype=torch.bool), num_negatives=2, generator=torch.Generator().manual_seed(31)
     )
@@ -156,6 +158,12 @@ def test_bendr_pretraining_wrapper_uses_caller_generator_for_negative_sampling()
     assert torch.equal(actual_indices, expected_indices)
     assert torch.equal(actual_usable, expected_usable)
 
+    # These deliberately different global states prove the wrapper does not
+    # silently let contrastive negative sampling fall back to global RNG.
+    # Mutation proof: removing the wrapper's ``generator=...`` forwarding
+    # makes the assertion below fail with these exact two states.
+    torch.manual_seed(1)
+    _ = torch.randn(17)
     first = model(emg, corruption_mask=corruption, generator=torch.Generator().manual_seed(31))
     torch.manual_seed(9_999)
     _ = torch.randn(1_000)
