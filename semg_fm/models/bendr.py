@@ -40,20 +40,29 @@ def sample_bendr_mask(
 
     The start probability is explicit rather than tied to a hidden global
     schedule, which lets comparison runs reproduce the masking regime from
-    their Hydra configuration.  Spans are clipped at sequence end rather than
-    wrapped: time is a line, unlike the 16-electrode ring.
+    their Hydra configuration.  Only observed tokens may start a span, so an
+    internal padding/artifact gap cannot corrupt a valid successor.  Spans are
+    clipped at sequence end rather than wrapped: time is a line, unlike the
+    16-electrode ring.
     """
     if token_mask.ndim != 2 or token_mask.dtype is not torch.bool:
         raise ValueError("token_mask must be boolean [B,N]")
     if not 0.0 <= probability <= 1.0 or span < 1:
         raise ValueError("probability must be in [0, 1] and span must be positive")
-    starts = _random_uniform(tuple(token_mask.shape), device=token_mask.device, generator=generator) < probability
-    corrupted = torch.zeros_like(token_mask)
-    for offset in range(span):
-        if offset >= token_mask.shape[1]:
-            break
-        corrupted[:, offset:] |= starts[:, : token_mask.shape[1] - offset]
-    return corrupted & token_mask
+    starts = (
+        _random_uniform(tuple(token_mask.shape), device=token_mask.device, generator=generator)
+        < probability
+    ) & token_mask
+    corrupted = starts.clone()
+    active = starts
+    for _ in range(1, min(span, token_mask.shape[1])):
+        # Propagate only active spans.  Re-applying ``token_mask`` at each step
+        # makes an invalid token a hard boundary rather than a transparent hole.
+        next_active = torch.zeros_like(token_mask)
+        next_active[:, 1:] = active[:, :-1]
+        active = next_active & token_mask
+        corrupted |= active
+    return corrupted
 
 
 def same_sequence_negative_indices(

@@ -18,6 +18,7 @@ from semg_fm.models.bendr import (
     BendrLikeContrastiveLoss,
     BendrPretrainingModel,
     same_sequence_negative_indices,
+    sample_bendr_mask,
 )
 from semg_fm.models.supervised_tcn import SupervisedTCN
 from semg_fm.registry import build_model, model_from_config
@@ -88,6 +89,38 @@ def test_bendr_masked_signal_values_cannot_change_target_or_context():
 
     torch.testing.assert_close(result["target"], reference["target"])
     torch.testing.assert_close(result["context"], reference["context"])
+
+
+@pytest.mark.parametrize(
+    ("token_mask", "seed"),
+    [
+        (torch.tensor([[False, True, True]]), 11),
+        (torch.tensor([[True, False, True]]), 5),
+    ],
+)
+def test_bendr_mask_spans_never_expand_from_invalid_starts(token_mask: torch.Tensor, seed: int):
+    # At p=0.2 each chosen seed samples only the invalid position.  A buggy
+    # expansion masks the valid token immediately to its right; valid starts
+    # must instead be selected before their forward span is expanded.
+    mask = sample_bendr_mask(
+        token_mask, probability=0.2, span=2, generator=torch.Generator().manual_seed(seed)
+    )
+
+    assert not mask.any()
+    assert not mask[~token_mask].any()
+
+
+def test_bendr_mask_spans_stop_at_an_internal_invalid_gap():
+    """A valid start cannot bridge a missing-token gap to a later token."""
+    token_mask = torch.tensor([[True, False, True]])
+
+    # seed=3 selects only token 0 at p=0.2.  A three-token span must stop at
+    # token 1, rather than corrupting valid token 2 across the gap.
+    mask = sample_bendr_mask(
+        token_mask, probability=0.2, span=3, generator=torch.Generator().manual_seed(3)
+    )
+
+    assert torch.equal(mask, torch.tensor([[True, False, False]]))
 
 
 def test_same_sequence_negative_sampler_excludes_positive_and_other_records():
