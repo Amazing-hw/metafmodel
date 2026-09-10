@@ -66,10 +66,46 @@ def task_homogeneous_collate(items: list[dict[str, Any]]) -> dict[str, Any]:
             key: value for key, value in item.items()
             if key not in {"emg", "sample_mask", "is_padding"}
         })
-    return {
+    batch = {
         "emg": emg, "sample_mask": sample_mask, "task_id": task_ids.pop(), "metadata": metadata,
         "is_padding": is_padding, "example_weight": (~is_padding).to(dtype=torch.float32),
     }
+    if all(isinstance(item.get("target"), torch.Tensor) and isinstance(item.get("target_mask"), torch.Tensor) for item in items):
+        targets = [item["target"] for item in items]
+        target_masks = [item["target_mask"] for item in items]
+        target = targets[0]
+        target_mask = target_masks[0]
+        if target.ndim < 1 or target_mask.ndim < 1:
+            raise ValueError("kinematic target and target_mask must have a time dimension")
+        if target_mask.dtype != torch.bool:
+            raise ValueError("kinematic target_mask must be boolean")
+        if any(
+            value.ndim < 1
+            or value.shape[0] != item["emg"].shape[0]
+            or value.shape[1:] != target.shape[1:]
+            or value.dtype != target.dtype
+            or value.device != target.device
+            for item, value in zip(items, targets)
+        ):
+            raise ValueError("kinematic targets must share time-aligned trailing shape, dtype, and device")
+        if any(
+            value.ndim < 1
+            or value.shape[0] != item["emg"].shape[0]
+            or value.shape[1:] != target_mask.shape[1:]
+            or value.dtype != torch.bool
+            or value.device != target_mask.device
+            for item, value in zip(items, target_masks)
+        ):
+            raise ValueError("kinematic target masks must share time-aligned trailing shape and device")
+        padded_target = torch.zeros((len(items), max_time, *target.shape[1:]), dtype=target.dtype, device=target.device)
+        padded_target_mask = torch.zeros((len(items), max_time, *target_mask.shape[1:]), dtype=torch.bool, device=target_mask.device)
+        for index, (value, mask) in enumerate(zip(targets, target_masks)):
+            length = value.shape[0]
+            padded_target[index, :length] = value
+            padded_target_mask[index, :length] = mask
+        batch["target"] = padded_target
+        batch["target_mask"] = padded_target_mask
+    return batch
 
 
 class CanonicalDataModule(LightningDataModule):

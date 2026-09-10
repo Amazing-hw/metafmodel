@@ -41,15 +41,17 @@ converted Meta 16-channel wrist corpora.
 - **Ring circular equivariance** (`ring_equivariance.py`): the zero-dropout
   architecture guarantees circular equivariance. It is evaluated and logged as
   the detached `ring_equivariance_error` diagnostic, not optimized. The old
-  same-student rotated comparison supplied no independent gradient. The shifted
-  input's `z_eq` inverse-roll is compared with the original `z_eq`
+  same-student rotated comparison supplied no independent learning signal
+  because exact structural equivariance makes its gradient numerically zero up
+  to floating-point error. The shifted input's `z_eq` inverse-roll is compared with the original `z_eq`
   (equivariant branch), while `z_motion` is compared without a roll (invariant
   branch); the shift is fixed to 1 channel.
 - **Kinematic anchoring** (`kinematic.py`): optional Smooth-L1 regression of
-  `z_motion` to pose/wrist targets on valid frames. **Disabled by default**
-  (`kinematic_dim=None`); enable by constructing `PretrainModule` with
-  `kinematic_dim=<target dim>` and providing `target`/`target_mask` in batch
-  metadata.
+  `z_motion` to pose targets on valid frames. **Disabled by default**
+  (`kinematic_dim=None`). The standard loader supports pose-only pretraining:
+  set `data.task_id=pose objective.kinematic_dim=20`. Tensor pose
+  `target`/`target_mask` labels are padded into top-level batch fields; other,
+  non-tensor labels remain in `metadata` and are not used by this objective.
 
 ## Pretraining configuration (`configs/pretrain.yaml`)
 
@@ -81,13 +83,15 @@ of a percent of windows.
 ## Command
 
 ```bash
+CANONICAL_META=/absolute/path/to/canonical_meta
+RUN_DIR=/absolute/path/to/outputs/run
 python pretrain.py trainer=a100_ddp \
-  data.root=CANONICAL_META data.manifest_path=CANONICAL_META/splits.csv \
+  data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
   data.batch_size=8 trainer.devices=4 trainer.accumulate_grad_batches=2 \
-  seed=0
+  hydra.run.dir="${RUN_DIR}" seed=0
 ```
 
-CLI paths must be absolute (`hydra.job.chdir=true`). The manifest may be the
+The variables above make all CLI paths absolute (`hydra.job.chdir=true`). The manifest may be the
 converter-written `manifest.csv` or a `make_splits.py` output CSV; both are
 accepted.
 
@@ -101,7 +105,11 @@ in-epoch position, so a resume from an interruption during an epoch must not
 be claimed to do so.
 
 ```bash
-python pretrain.py trainer=a100_ddp resume_from=outputs/<run>/checkpoints/last.ckpt ...
+CANONICAL_META=/absolute/path/to/canonical_meta
+RUN_DIR=/absolute/path/to/outputs/run
+python pretrain.py trainer=a100_ddp \
+  data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
+  resume_from="${RUN_DIR}/checkpoints/last.ckpt"
 ```
 
 ## Outputs

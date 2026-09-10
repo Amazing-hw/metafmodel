@@ -43,3 +43,25 @@ def test_pretraining_docs_limit_deterministic_resume_to_epoch_boundaries():
     )
     assert "epoch-boundary" in text
     assert "mid-epoch resume replays deterministically" not in text
+
+
+def test_pretraining_commands_use_reproducible_absolute_path_variables():
+    root = Path(__file__).parents[1]
+    text = "\n".join(
+        (root / name).read_text(encoding="utf-8")
+        for name in ["PRETRAINING.md", "SERVER_A100.md"]
+    )
+
+    for expected in [
+        "epoch-boundary",
+        "CANONICAL_META=/absolute/path/to/canonical_meta",
+        "RUN_DIR=/absolute/path/to/outputs/run",
+    ]:
+        assert expected in text
+    for prohibited in [
+        "data.root=...",
+        "data.manifest_path=...",
+        "outputs/<run>",
+        "supplied no independent gradient",
+    ]:
+        assert prohibited not in text

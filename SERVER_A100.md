@@ -27,17 +27,28 @@ batch size** fixed when changing device count: with the base
 
 ```bash
 # Pretraining on 1 / 2 / 4 / 8 devices
+CANONICAL_META=/absolute/path/to/canonical_meta
+RUN_DIR=/absolute/path/to/outputs/run
 python pretrain.py trainer=a100_ddp trainer.devices=1 trainer.accumulate_grad_batches=8 \
-  data.root=CANONICAL_META data.manifest_path=CANONICAL_META/splits.csv seed=0
-python pretrain.py trainer=a100_ddp trainer.devices=2 trainer.accumulate_grad_batches=4 ...
-python pretrain.py trainer=a100_ddp trainer.devices=4 trainer.accumulate_grad_batches=2 ...
-python pretrain.py trainer=a100_ddp trainer.devices=8 trainer.accumulate_grad_batches=1 ...
+  data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
+  hydra.run.dir="${RUN_DIR}" seed=0
+python pretrain.py trainer=a100_ddp trainer.devices=2 trainer.accumulate_grad_batches=4 \
+  data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
+  hydra.run.dir="${RUN_DIR}" seed=0
+python pretrain.py trainer=a100_ddp trainer.devices=4 trainer.accumulate_grad_batches=2 \
+  data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
+  hydra.run.dir="${RUN_DIR}" seed=0
+python pretrain.py trainer=a100_ddp trainer.devices=8 trainer.accumulate_grad_batches=1 \
+  data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
+  hydra.run.dir="${RUN_DIR}" seed=0
 
 # Downstream fine-tune and evaluate use the same trainer group
 python finetune.py trainer=a100_ddp trainer.devices=4 task=pose \
-  data.root=... data.manifest_path=... finetune_mode=full label_budget=1.0
+  data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
+  finetune_mode=full label_budget=1.0 hydra.run.dir="${RUN_DIR}"
 python evaluate.py trainer=a100_ddp trainer.devices=4 task=pose \
-  checkpoint_path=outputs/<run>/checkpoints/last.ckpt data.root=... data.manifest_path=...
+  checkpoint_path="${RUN_DIR}/checkpoints/last.ckpt" data.root="${CANONICAL_META}" \
+  data.manifest_path="${CANONICAL_META}/splits.csv" hydra.run.dir="${RUN_DIR}"
 ```
 
 No Slurm integration is required; launch from a plain shell on the node.
@@ -50,8 +61,14 @@ continuation, use `last.ckpt` created after a completed epoch (an
 epoch-boundary checkpoint):
 
 ```bash
-python pretrain.py trainer=a100_ddp resume_from=outputs/<run>/checkpoints/last.ckpt ...
-python finetune.py trainer=a100_ddp resume_from=outputs/<run>/checkpoints/last.ckpt ...
+CANONICAL_META=/absolute/path/to/canonical_meta
+RUN_DIR=/absolute/path/to/outputs/run
+python pretrain.py trainer=a100_ddp \
+  data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
+  resume_from="${RUN_DIR}/checkpoints/last.ckpt"
+python finetune.py trainer=a100_ddp \
+  data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
+  resume_from="${RUN_DIR}/checkpoints/last.ckpt"
 ```
 
 Generic PyTorch dataloaders cannot reproduce an arbitrary in-epoch position.
@@ -64,8 +81,12 @@ position deterministically.
 Before long runs, verify NCCL across N devices:
 
 ```bash
+CANONICAL_META=/absolute/path/to/canonical_meta
+RUN_DIR=/absolute/path/to/outputs/run
 python run_baseline.py stage=pretrain model=bendr trainer=a100_ddp trainer.devices=4 \
-  trainer.fast_dev_run=true data.root=... data.manifest_path=... data.num_workers=4
+  trainer.fast_dev_run=true data.root="${CANONICAL_META}" \
+  data.manifest_path="${CANONICAL_META}/splits.csv" data.num_workers=4 \
+  hydra.run.dir="${RUN_DIR}"
 ```
 
 The test suite does not claim NCCL coverage; run this smoke on the server.
@@ -73,7 +94,11 @@ The test suite does not claim NCCL coverage; run this smoke on the server.
 ## Diagnostics
 
 ```bash
-NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,NET python pretrain.py ...
+CANONICAL_META=/absolute/path/to/canonical_meta
+RUN_DIR=/absolute/path/to/outputs/run
+NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,NET python pretrain.py trainer=a100_ddp \
+  data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
+  hydra.run.dir="${RUN_DIR}"
 nvidia-smi                          # device health and memory
 ```
 

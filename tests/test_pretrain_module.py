@@ -6,6 +6,7 @@ import torch
 from lightning import Trainer
 from torch.utils.data import DataLoader, Dataset
 
+from semg_fm.data.datamodule import task_homogeneous_collate
 import semg_fm.lightning.pretrain_module as pretrain_module
 from semg_fm.models import RingCrissCrossEncoder
 from semg_fm.lightning.pretrain_module import PretrainModule
@@ -77,6 +78,35 @@ def test_ring_equivariance_is_a_detached_diagnostic_not_an_optimized_loss(monkey
     assert "ring_equivariance_error" in losses
     assert not losses["ring_equivariance_error"].requires_grad
     assert torch.equal(total, module.latent_weight * losses["latent"] + module.kinematic_weight * losses["kinematic"])
+
+
+def test_pretraining_uses_tensor_pose_targets_from_standard_collator():
+    torch.manual_seed(7)
+    raw_items = [
+        {
+            "emg": torch.randn(80, 16),
+            "sample_mask": torch.ones(80, dtype=torch.bool),
+            "task_id": "pose",
+            "target": torch.full((80, 2), float(index + 1)),
+            "target_mask": torch.ones(80, dtype=torch.bool),
+        }
+        for index in range(2)
+    ]
+    batch = task_homogeneous_collate(raw_items)
+    module = PretrainModule(
+        model_config={"d_model": 8, "depth": 1, "heads": 2, "patch_samples": 40},
+        kinematic_dim=2,
+        latent_weight=1.5,
+        kinematic_weight=2.0,
+        warmup_steps=0,
+        max_steps=1,
+    )
+
+    total, losses = module._losses(batch)
+
+    assert torch.isfinite(losses["kinematic"])
+    assert losses["kinematic"].item() > 0
+    torch.testing.assert_close(total, module.latent_weight * losses["latent"] + module.kinematic_weight * losses["kinematic"])
 
 
 def test_log_records_ring_equivariance_as_a_metric_without_loss_suffix(monkeypatch):

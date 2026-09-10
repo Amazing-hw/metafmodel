@@ -31,6 +31,41 @@ def test_collate_pads_time_and_returns_sample_mask_and_metadata():
     assert [metadata["record_id"] for metadata in batch["metadata"]] == ["pose-2", "pose-4"]
 
 
+def test_collate_promotes_tensor_pose_targets_and_preserves_metadata():
+    short = _item("pose", 2)
+    long = _item("pose", 4)
+    short["target"] = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
+    long["target"] = torch.tensor([[5.0, 6.0], [7.0, 8.0], [9.0, 10.0], [11.0, 12.0]])
+    short["target_mask"] = torch.tensor([True, False])
+    long["target_mask"] = torch.tensor([True, True, False, True])
+
+    batch = task_homogeneous_collate([short, long])
+
+    assert batch["target"].shape == (2, 4, 2)
+    assert batch["target_mask"].dtype == torch.bool
+    assert batch["target_mask"].tolist() == [[True, False, False, False], [True, True, False, True]]
+    torch.testing.assert_close(batch["target"][0, :2], short["target"])
+    torch.testing.assert_close(batch["target"][1], long["target"])
+    torch.testing.assert_close(batch["metadata"][0]["target"], short["target"])
+    assert torch.equal(batch["metadata"][1]["target_mask"], long["target_mask"])
+
+
+def test_collate_keeps_non_tensor_targets_in_metadata_only():
+    first = _item("wrist_angle", 2)
+    second = _item("wrist_angle", 3)
+    first["target"] = {"flexion": torch.tensor([1.0, 2.0])}
+    second["target"] = {"flexion": torch.tensor([3.0, 4.0, 5.0])}
+    first["target_mask"] = {"flexion": torch.tensor([True, True])}
+    second["target_mask"] = {"flexion": torch.tensor([True, True, True])}
+
+    batch = task_homogeneous_collate([first, second])
+
+    assert "target" not in batch
+    assert "target_mask" not in batch
+    assert batch["metadata"][0]["target"] is first["target"]
+    assert batch["metadata"][1]["target_mask"] is second["target_mask"]
+
+
 def test_collate_returns_zero_weight_for_padded_evaluation_examples():
     real_item = _item("pose", 2)
     padded_item = _item("pose", 2)
