@@ -56,6 +56,10 @@ def test_pretraining_commands_use_reproducible_absolute_path_variables():
         "epoch-boundary",
         "CANONICAL_META=/absolute/path/to/canonical_meta",
         "RUN_DIR=/absolute/path/to/outputs/run",
+        'data.root="${CANONICAL_META}"',
+        'data.manifest_path="${CANONICAL_META}/splits.csv"',
+        'resume_from="${RUN_DIR}/checkpoints/last.ckpt"',
+        "+data.task_id=pose objective.kinematic_dim=20",
     ]:
         assert expected in text
     for prohibited in [
@@ -63,5 +67,6 @@ def test_pretraining_commands_use_reproducible_absolute_path_variables():
         "data.manifest_path=...",
         "outputs/<run>",
         "supplied no independent gradient",
+        "...",
     ]:
         assert prohibited not in text

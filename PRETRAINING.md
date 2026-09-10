@@ -49,7 +49,7 @@ converted Meta 16-channel wrist corpora.
 - **Kinematic anchoring** (`kinematic.py`): optional Smooth-L1 regression of
   `z_motion` to pose targets on valid frames. **Disabled by default**
   (`kinematic_dim=None`). The standard loader supports pose-only pretraining:
-  set `data.task_id=pose objective.kinematic_dim=20`. Tensor pose
+  set `+data.task_id=pose objective.kinematic_dim=20`. Tensor pose
   `target`/`target_mask` labels are padded into top-level batch fields; other,
   non-tensor labels remain in `metadata` and are not used by this objective.
 
@@ -97,7 +97,7 @@ accepted.
 
 ## Resume
 
-`Trainer.fit(..., ckpt_path=cfg.resume_from)` restores the student/teacher
+`Trainer.fit(…, ckpt_path=cfg.resume_from)` restores the student/teacher
 model state, optimizer, scheduler, `global_step`, and EMA counter
 (`_ema_updates`). Only epoch-boundary checkpoints guarantee deterministic
 continuation. A generic PyTorch dataloader cannot reproduce an arbitrary
