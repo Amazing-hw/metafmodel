@@ -59,6 +59,17 @@ def test_teacher_starts_as_frozen_copy_of_student():
         assert not teacher.requires_grad
 
 
+def test_ring_equivariance_is_a_detached_diagnostic_not_an_optimized_loss():
+    module = _module()
+    batch = _collate([_TinyPretrainDataset()[0], _TinyPretrainDataset()[1]])
+
+    total, losses = module._losses(batch)
+
+    assert "ring_equivariance_error" in losses
+    assert not losses["ring_equivariance_error"].requires_grad
+    assert torch.equal(total, losses["latent"] + losses["kinematic"])
+
+
 def test_ema_updates_only_after_optimizer_step_and_teacher_has_no_grads():
     module = _module()
     before = {key: value.clone() for key, value in module.teacher.state_dict().items()}

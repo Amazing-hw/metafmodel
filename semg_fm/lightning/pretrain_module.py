@@ -122,12 +122,15 @@ class PretrainModule(LightningModule):
             teacher = self.teacher(emg * observed.to(emg.dtype), observation_mask=observed)
         student_input = emg * student_observed.to(emg.dtype)
         student = self.student(student_input, observation_mask=student_observed)
-        shifted = self.student(torch.roll(student_input, 1, -1), observation_mask=torch.roll(student_observed, 1, -1))
         latent = masked_latent_loss(student["z_eq"], teacher["z_eq"], token_mask)
-        ring = ring_equivariance_loss(student["z_eq"], student["z_motion"], shifted["z_eq"], shifted["z_motion"], 1)
+        with torch.no_grad():
+            shifted = self.student(torch.roll(student_input.detach(), 1, -1), observation_mask=torch.roll(student_observed, 1, -1))
+            ring_equivariance_error = ring_equivariance_loss(
+                student["z_eq"].detach(), student["z_motion"].detach(), shifted["z_eq"], shifted["z_motion"], 1
+            )
         kinematic = self._kinematic(student["z_motion"], batch)
-        total = self.latent_weight * latent + self.ring_weight * ring + self.kinematic_weight * kinematic
-        return total, {"latent": latent, "ring": ring, "kinematic": kinematic}
+        total = self.latent_weight * latent + self.kinematic_weight * kinematic
+        return total, {"latent": latent, "ring_equivariance_error": ring_equivariance_error, "kinematic": kinematic}
 
     def _kinematic(self, motion: torch.Tensor, batch: Mapping[str, Any]) -> torch.Tensor:
         if self.kinematic_adapter is None:
