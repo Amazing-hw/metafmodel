@@ -1,0 +1,6 @@
+# Select one named canonical target per run for interpretable wrist metrics.
+name: wrist_angle
+output_dim: 1
+target_name: flexion_extension
+class_names: []
+vocabulary: []

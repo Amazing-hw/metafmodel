@@ -99,8 +99,9 @@ class CTCTextHead(nn.Module):
         targets: torch.Tensor,
         input_lengths: torch.Tensor,
         target_lengths: torch.Tensor,
+        reduction: str = "mean",
     ) -> torch.Tensor:
-        """Compute finite zero-infinity CTC loss without timestamp supervision."""
+        """Compute finite CTC loss, optionally retaining one loss per example."""
         if logits.ndim != 3 or logits.shape[-1] != len(self.vocabulary) + 1:
             raise ValueError("logits must be [B,N,1+vocabulary_size]")
         if targets.dtype is not torch.long or targets.ndim != 2 or targets.shape[0] != logits.shape[0]:
@@ -109,6 +110,8 @@ class CTCTextHead(nn.Module):
             raise ValueError("input_lengths and target_lengths must be [B]")
         if (input_lengths < 0).any() or (input_lengths > logits.shape[1]).any() or (target_lengths < 0).any():
             raise ValueError("CTC lengths are out of range")
+        if reduction not in {"none", "mean", "sum"}:
+            raise ValueError("reduction must be 'none', 'mean', or 'sum'")
         flattened = torch.cat(
             [targets[index, : int(target_lengths[index])].to(logits.device) for index in range(logits.shape[0])]
         )
@@ -118,6 +121,7 @@ class CTCTextHead(nn.Module):
             input_lengths.to(device=logits.device, dtype=torch.long),
             target_lengths.to(device=logits.device, dtype=torch.long),
             blank=self.blank_index,
+            reduction=reduction,
             zero_infinity=True,
         )
 

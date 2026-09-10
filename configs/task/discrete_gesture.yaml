@@ -1,0 +1,7 @@
+# Replace class_names with the exact converter-emitted event vocabulary.
+name: discrete_gesture
+output_dim: null
+target_name: null
+class_names: [pinch, fist]
+vocabulary: []
+event_tolerance_s: 0.05

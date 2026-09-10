@@ -1,7 +1,11 @@
 defaults:
   - data: canonical_meta
   - model: ring_criss_cross
+  - task: pose
   - trainer: a100_ddp
   - _self_
 
-task: evaluate
+command: evaluate
+seed: 0
+checkpoint_path: null
+output_dir: null

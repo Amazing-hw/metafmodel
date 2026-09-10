@@ -1,0 +1,6 @@
+# Override output_dim if the converted pose label has a different joint count.
+name: pose
+output_dim: 20
+target_name: null
+class_names: []
+vocabulary: []
