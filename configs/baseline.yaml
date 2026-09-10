@@ -1,7 +1,15 @@
 defaults:
   - data: canonical_meta
   - model: ring_criss_cross
+  - task: pose
   - trainer: a100_ddp
   - _self_
 
-task: baseline
+command: baseline
+stage: finetune
+seed: 0
+resume_from: null
+pretrained_checkpoint: null
+optimizer:
+  learning_rate: 0.001
+  weight_decay: 0.05

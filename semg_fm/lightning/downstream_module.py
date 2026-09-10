@@ -117,7 +117,9 @@ class DownstreamModule(LightningModule):
         if not student_state:
             student_state = {name.removeprefix("backbone."): value for name, value in state.items() if name.startswith("backbone.")}
         if not student_state:
-            raise ValueError("checkpoint has neither student.* nor backbone.* weights")
+            student_state = {name.removeprefix("model.encoder."): value for name, value in state.items() if name.startswith("model.encoder.")}
+        if not student_state:
+            raise ValueError("checkpoint has neither student.*, backbone.*, nor model.encoder.* weights")
         self.backbone.load_state_dict(student_state, strict=True)
 
     def _loss_and_metrics(self, batch: Mapping[str, Any]) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
