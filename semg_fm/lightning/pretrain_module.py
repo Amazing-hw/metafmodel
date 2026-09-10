@@ -10,10 +10,31 @@ from typing import Any
 import torch
 from lightning import LightningModule
 from torch import nn
+from torchmetrics import Metric
 
 from semg_fm.models import RingCrissCrossEncoder
 from semg_fm.objectives import MaskGenerator, kinematic_loss, masked_latent_loss, ring_equivariance_loss
 from semg_fm.registry import build_model
+
+
+class _WeightedMeanMetric(Metric):
+    """Distributed weighted mean that remains finite for empty validation shards."""
+
+    full_state_update = False
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.add_state("numerator", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("weight", default=torch.tensor(0.0), dist_reduce_fx="sum")
+
+    def update(self, value: torch.Tensor, weight: int) -> None:
+        scalar = value.detach().reshape(())
+        metric_weight = scalar.new_tensor(weight)
+        self.numerator += scalar * metric_weight
+        self.weight += metric_weight
+
+    def compute(self) -> torch.Tensor:
+        return self.numerator / self.weight.clamp_min(1)
 
 
 class PretrainModule(LightningModule):
@@ -50,6 +71,14 @@ class PretrainModule(LightningModule):
         self.learning_rate, self.weight_decay = float(learning_rate), float(weight_decay)
         self.warmup_steps, self.max_steps = int(warmup_steps), int(max_steps)
         self.register_buffer("_ema_updates", torch.zeros((), dtype=torch.long), persistent=True)
+        self._stage_metrics = nn.ModuleDict({
+            f"{stage}_stage": nn.ModuleDict({name: _WeightedMeanMetric() for name in ("loss", "latent_loss", "ring_equivariance_error", "kinematic_loss")})
+            for stage in ("train", "val")
+        })
+        self._val_task_metrics = nn.ModuleDict({
+            task: _WeightedMeanMetric()
+            for task in ("discrete_gesture", "handwriting", "pose", "typing", "wrist_angle", "unknown")
+        })
         self.save_hyperparameters({
             "model_name": self.model_name,
             "model_config": self.model_config,
@@ -82,7 +111,9 @@ class PretrainModule(LightningModule):
         batch_size = self._effective_batch_size(batch)
         self._log("val", total, losses, batch_size)
         task = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in str(batch.get("task_id", "unknown")))
-        self.log(f"val/{task}_loss", total, on_step=False, on_epoch=True, sync_dist=True, batch_size=batch_size)
+        task_metric = self._val_task_metrics[task if task in self._val_task_metrics else "unknown"]
+        task_metric(total, batch_size)
+        self.log(f"val/{task}_loss", task_metric, on_step=False, on_epoch=True, sync_dist=False)
         return total
 
     def configure_optimizers(self):
@@ -183,10 +214,16 @@ class PretrainModule(LightningModule):
 
     def _log(self, stage: str, total: torch.Tensor, losses: Mapping[str, torch.Tensor], batch_size: int) -> None:
         on_step = stage == "train"
-        self.log(f"{stage}/loss", total, on_step=on_step, on_epoch=True, sync_dist=True, batch_size=batch_size)
-        for name, value in losses.items():
-            metric = f"{stage}/ring_equivariance_error" if name == "ring_equivariance_error" else f"{stage}/{name}_loss"
-            self.log(metric, value, on_step=on_step, on_epoch=True, sync_dist=True, batch_size=batch_size)
+        values = {
+            "loss": total,
+            "latent_loss": losses["latent"],
+            "ring_equivariance_error": losses["ring_equivariance_error"],
+            "kinematic_loss": losses["kinematic"],
+        }
+        for name, value in values.items():
+            metric = self._stage_metrics[f"{stage}_stage"][name]
+            metric(value, batch_size)
+            self.log(f"{stage}/{name}", metric, on_step=on_step, on_epoch=True, sync_dist=False)
 
     def _lr_scale(self, step: int) -> float:
         if self.warmup_steps and step < self.warmup_steps:

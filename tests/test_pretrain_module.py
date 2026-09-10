@@ -54,6 +54,16 @@ def _trainer() -> Trainer:
     )
 
 
+def _validation_trainer() -> Trainer:
+    return Trainer(
+        accelerator="cpu",
+        devices=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+    )
+
+
 def test_teacher_starts_as_frozen_copy_of_student():
     module = _module()
     for student, teacher in zip(module.student.parameters(), module.teacher.parameters()):
@@ -193,6 +203,37 @@ def test_pretraining_all_padding_returns_differentiable_zero_without_masking():
     assert all(torch.isfinite(value) for value in losses.values())
     assert not losses["ring_equivariance_error"].requires_grad
     total.backward()
+
+
+def test_validation_all_padding_logs_finite_zero_metrics():
+    item = {
+        "emg": torch.randn(80, 16),
+        "sample_mask": torch.ones(80, dtype=torch.bool),
+        "task_id": "pose",
+        "is_padding": True,
+    }
+    loader = DataLoader([item, item], batch_size=2, collate_fn=task_homogeneous_collate)
+
+    metrics = _validation_trainer().validate(_module(), dataloaders=loader, verbose=False)[0]
+
+    assert metrics
+    assert all(torch.isfinite(torch.as_tensor(value)) and abs(float(value)) < 1e-6 for value in metrics.values())
+
+
+def test_validation_epoch_loss_ignores_all_padding_batch_weight():
+    valid = _TinyPretrainDataset()[0]
+    padding = dict(_TinyPretrainDataset()[1])
+    padding["is_padding"] = True
+    reference_loader = DataLoader([valid], batch_size=1, collate_fn=task_homogeneous_collate)
+    mixed_loader = DataLoader([valid, padding], batch_size=1, collate_fn=task_homogeneous_collate)
+    module = _module()
+
+    torch.manual_seed(41)
+    reference_metrics = _validation_trainer().validate(module, dataloaders=reference_loader, verbose=False)[0]
+    torch.manual_seed(41)
+    mixed_metrics = _validation_trainer().validate(module, dataloaders=mixed_loader, verbose=False)[0]
+
+    torch.testing.assert_close(mixed_metrics["val/loss"], reference_metrics["val/loss"])
 
 
 def test_pretraining_steps_log_effective_example_count(monkeypatch):
