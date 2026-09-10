@@ -5,12 +5,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from .models import RingCrissCrossEncoder
+from torch import nn
 
-MODEL_REGISTRY = {"ring_criss_cross": RingCrissCrossEncoder}
+from .models import BendrEncoder, RingCrissCrossEncoder, SupervisedTCN
+
+MODEL_REGISTRY: dict[str, type[nn.Module]] = {
+    "ring_criss_cross": RingCrissCrossEncoder,
+    "supervised_tcn": SupervisedTCN,
+    "bendr": BendrEncoder,
+}
 
 
-def build_model(name: str, /, **kwargs: Any) -> RingCrissCrossEncoder:
+def build_model(name: str, /, **kwargs: Any) -> nn.Module:
     """Build a registered backbone."""
     try:
         return MODEL_REGISTRY[name](**kwargs)
@@ -18,7 +24,7 @@ def build_model(name: str, /, **kwargs: Any) -> RingCrissCrossEncoder:
         raise ValueError(f"unknown model {name!r}; choose from {sorted(MODEL_REGISTRY)}") from error
 
 
-def model_from_config(config: Mapping[str, Any]) -> RingCrissCrossEncoder:
+def model_from_config(config: Mapping[str, Any]) -> nn.Module:
     """Build a model from a Hydra-compatible mapping with a ``name`` field."""
     values = dict(config)
     try:
