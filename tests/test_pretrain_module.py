@@ -147,6 +147,33 @@ def test_pretraining_excludes_zero_weight_duplicate_from_losses():
         torch.testing.assert_close(padded_losses[name], reference_losses[name])
 
 
+def test_pretraining_filters_zero_weight_examples_before_model_forwards(monkeypatch):
+    valid = _TinyPretrainDataset()[0]
+    excluded = dict(_TinyPretrainDataset()[1])
+    excluded["is_padding"] = True
+    batch = task_homogeneous_collate([valid, excluded])
+    module = _module()
+    student_forward, teacher_forward = module.student.forward, module.teacher.forward
+    student_batch_sizes: list[int] = []
+    teacher_batch_sizes: list[int] = []
+
+    def record_student(emg, *args, **kwargs):
+        student_batch_sizes.append(int(emg.shape[0]))
+        return student_forward(emg, *args, **kwargs)
+
+    def record_teacher(emg, *args, **kwargs):
+        teacher_batch_sizes.append(int(emg.shape[0]))
+        return teacher_forward(emg, *args, **kwargs)
+
+    monkeypatch.setattr(module.student, "forward", record_student)
+    monkeypatch.setattr(module.teacher, "forward", record_teacher)
+
+    module._losses(batch)
+
+    assert student_batch_sizes == [1, 1]
+    assert teacher_batch_sizes == [1]
+
+
 def test_pretraining_all_padding_returns_differentiable_zero_without_masking():
     item = {
         "emg": torch.randn(80, 16),
@@ -166,6 +193,26 @@ def test_pretraining_all_padding_returns_differentiable_zero_without_masking():
     assert all(torch.isfinite(value) for value in losses.values())
     assert not losses["ring_equivariance_error"].requires_grad
     total.backward()
+
+
+def test_pretraining_steps_log_effective_example_count(monkeypatch):
+    module = _module()
+    scalar = torch.zeros((), requires_grad=True)
+    losses = {"latent": scalar, "ring_equivariance_error": scalar.detach(), "kinematic": scalar}
+    logged_batch_sizes: list[tuple[str, int]] = []
+    batch = {
+        "emg": torch.zeros(2, 80, 16),
+        "example_weight": torch.tensor([1.0, 0.0]),
+        "task_id": "pose",
+    }
+    monkeypatch.setattr(module, "_losses", lambda _: (scalar, losses))
+    monkeypatch.setattr(module, "_log", lambda stage, total, values, batch_size: logged_batch_sizes.append((stage, batch_size)))
+    monkeypatch.setattr(module, "log", lambda *args, **kwargs: None)
+
+    module.training_step(batch, 0)
+    module.validation_step(batch, 0)
+
+    assert logged_batch_sizes == [("train", 1), ("val", 1)]
 
 
 def test_log_records_ring_equivariance_as_a_metric_without_loss_suffix(monkeypatch):

@@ -71,6 +71,12 @@ def test_pretraining_commands_use_reproducible_absolute_path_variables():
         "...",
     ]:
         assert prohibited not in text
-    for variable in ["RUN_DIR_1", "RUN_DIR_8"]:
-        assert f'{variable}="/absolute/path/to/outputs/run_' in server_text
+    device_run_dirs = {
+        device: f'RUN_DIR_{device}="/absolute/path/to/outputs/run_{device}"'
+        for device in [1, 2, 4, 8]
+    }
+    for device, definition in device_run_dirs.items():
+        variable = f"RUN_DIR_{device}"
+        assert definition in server_text
         assert f'hydra.run.dir="${{{variable}}}"' in server_text
+    assert len(set(device_run_dirs.values())) == 4
