@@ -83,8 +83,8 @@ of a percent of windows.
 ## Command
 
 ```bash
-CANONICAL_META=/absolute/path/to/canonical_meta
-RUN_DIR=/absolute/path/to/outputs/run
+CANONICAL_META="/absolute/path/to/canonical_meta"
+RUN_DIR="/absolute/path/to/outputs/run"
 python pretrain.py trainer=a100_ddp \
   data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
   data.batch_size=8 trainer.devices=4 trainer.accumulate_grad_batches=2 \
@@ -105,8 +105,8 @@ in-epoch position, so a resume from an interruption during an epoch must not
 be claimed to do so.
 
 ```bash
-CANONICAL_META=/absolute/path/to/canonical_meta
-RUN_DIR=/absolute/path/to/outputs/run
+CANONICAL_META="/absolute/path/to/canonical_meta"
+RUN_DIR="/absolute/path/to/outputs/run"
 python pretrain.py trainer=a100_ddp \
   data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
   resume_from="${RUN_DIR}/checkpoints/last.ckpt"

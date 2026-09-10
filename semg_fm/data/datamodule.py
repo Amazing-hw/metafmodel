@@ -79,6 +79,8 @@ def task_homogeneous_collate(items: list[dict[str, Any]]) -> dict[str, Any]:
             raise ValueError("kinematic target and target_mask must have a time dimension")
         if target_mask.dtype != torch.bool:
             raise ValueError("kinematic target_mask must be boolean")
+        if target_mask.shape[1:] not in ((), target.shape[1:]):
+            raise ValueError("kinematic target_mask must be [T] or match the target shape")
         if any(
             value.ndim < 1
             or value.shape[0] != item["emg"].shape[0]

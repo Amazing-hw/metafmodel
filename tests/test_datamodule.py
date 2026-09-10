@@ -66,6 +66,18 @@ def test_collate_keeps_non_tensor_targets_in_metadata_only():
     assert batch["metadata"][1]["target_mask"] is second["target_mask"]
 
 
+def test_collate_rejects_tensor_target_mask_with_incompatible_trailing_shape():
+    first = _item("pose", 2)
+    second = _item("pose", 3)
+    first["target"] = torch.ones(2, 2)
+    second["target"] = torch.ones(3, 2)
+    first["target_mask"] = torch.ones(2, 1, dtype=torch.bool)
+    second["target_mask"] = torch.ones(3, 1, dtype=torch.bool)
+
+    with pytest.raises(ValueError, match="target_mask"):
+        task_homogeneous_collate([first, second])
+
+
 def test_collate_returns_zero_weight_for_padded_evaluation_examples():
     real_item = _item("pose", 2)
     padded_item = _item("pose", 2)

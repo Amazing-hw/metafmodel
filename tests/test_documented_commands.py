@@ -47,6 +47,7 @@ def test_pretraining_docs_limit_deterministic_resume_to_epoch_boundaries():
 
 def test_pretraining_commands_use_reproducible_absolute_path_variables():
     root = Path(__file__).parents[1]
+    server_text = (root / "SERVER_A100.md").read_text(encoding="utf-8")
     text = "\n".join(
         (root / name).read_text(encoding="utf-8")
         for name in ["PRETRAINING.md", "SERVER_A100.md"]
@@ -54,8 +55,8 @@ def test_pretraining_commands_use_reproducible_absolute_path_variables():
 
     for expected in [
         "epoch-boundary",
-        "CANONICAL_META=/absolute/path/to/canonical_meta",
-        "RUN_DIR=/absolute/path/to/outputs/run",
+        'CANONICAL_META="/absolute/path/to/canonical_meta"',
+        'RUN_DIR="/absolute/path/to/outputs/run"',
         'data.root="${CANONICAL_META}"',
         'data.manifest_path="${CANONICAL_META}/splits.csv"',
         'resume_from="${RUN_DIR}/checkpoints/last.ckpt"',
@@ -70,3 +71,6 @@ def test_pretraining_commands_use_reproducible_absolute_path_variables():
         "...",
     ]:
         assert prohibited not in text
+    for variable in ["RUN_DIR_1", "RUN_DIR_8"]:
+        assert f'{variable}="/absolute/path/to/outputs/run_' in server_text
+        assert f'hydra.run.dir="${{{variable}}}"' in server_text

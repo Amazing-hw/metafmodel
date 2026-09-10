@@ -109,6 +109,65 @@ def test_pretraining_uses_tensor_pose_targets_from_standard_collator():
     torch.testing.assert_close(total, module.latent_weight * losses["latent"] + module.kinematic_weight * losses["kinematic"])
 
 
+def test_pretraining_excludes_zero_weight_duplicate_from_losses():
+    torch.manual_seed(19)
+    valid = {
+        "emg": torch.randn(80, 16),
+        "sample_mask": torch.ones(80, dtype=torch.bool),
+        "task_id": "pose",
+        "target": torch.zeros(80, 2),
+        "target_mask": torch.ones(80, dtype=torch.bool),
+    }
+    duplicate = {
+        "emg": torch.full((80, 16), 100.0),
+        "sample_mask": torch.ones(80, dtype=torch.bool),
+        "task_id": "pose",
+        "target": torch.full((80, 2), 100.0),
+        "target_mask": torch.ones(80, dtype=torch.bool),
+        "is_padding": True,
+    }
+    reference = task_homogeneous_collate([valid])
+    padded = task_homogeneous_collate([valid, duplicate])
+    module = PretrainModule(
+        model_config={"d_model": 8, "depth": 1, "heads": 2, "patch_samples": 40},
+        kinematic_dim=2,
+        latent_weight=1.5,
+        kinematic_weight=2.0,
+        warmup_steps=0,
+        max_steps=1,
+    )
+
+    torch.manual_seed(31)
+    reference_total, reference_losses = module._losses(reference)
+    torch.manual_seed(31)
+    padded_total, padded_losses = module._losses(padded)
+
+    torch.testing.assert_close(padded_total, reference_total)
+    for name in reference_losses:
+        torch.testing.assert_close(padded_losses[name], reference_losses[name])
+
+
+def test_pretraining_all_padding_returns_differentiable_zero_without_masking():
+    item = {
+        "emg": torch.randn(80, 16),
+        "sample_mask": torch.ones(80, dtype=torch.bool),
+        "task_id": "pose",
+        "is_padding": True,
+    }
+    batch = task_homogeneous_collate([item, item])
+    module = _module()
+
+    total, losses = module._losses(batch)
+
+    assert module._effective_batch_size(batch) == 0
+    assert total.requires_grad
+    assert torch.isfinite(total)
+    assert total.item() == 0
+    assert all(torch.isfinite(value) for value in losses.values())
+    assert not losses["ring_equivariance_error"].requires_grad
+    total.backward()
+
+
 def test_log_records_ring_equivariance_as_a_metric_without_loss_suffix(monkeypatch):
     module = _module()
     names: list[str] = []

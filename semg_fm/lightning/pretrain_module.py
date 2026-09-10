@@ -74,12 +74,12 @@ class PretrainModule(LightningModule):
 
     def training_step(self, batch: Mapping[str, Any], batch_idx: int) -> torch.Tensor:
         total, losses = self._losses(batch)
-        self._log("train", total, losses, int(batch["emg"].shape[0]))
+        self._log("train", total, losses, self._effective_batch_size(batch))
         return total
 
     def validation_step(self, batch: Mapping[str, Any], batch_idx: int) -> torch.Tensor:
         total, losses = self._losses(batch)
-        batch_size = int(batch["emg"].shape[0])
+        batch_size = self._effective_batch_size(batch)
         self._log("val", total, losses, batch_size)
         task = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in str(batch.get("task_id", "unknown")))
         self.log(f"val/{task}_loss", total, on_step=False, on_epoch=True, sync_dist=True, batch_size=batch_size)
@@ -107,6 +107,13 @@ class PretrainModule(LightningModule):
         emg = batch["emg"]
         if not isinstance(emg, torch.Tensor) or emg.ndim != 3:
             raise ValueError("batch emg must be [B, T, C]")
+        effective_batch_size = self._effective_batch_size(batch)
+        if effective_batch_size == 0:
+            zero = next(self.student.parameters()).reshape(-1)[:0].sum()
+            total = self.latent_weight * zero + self.kinematic_weight * zero
+            return total, {"latent": zero, "ring_equivariance_error": zero.detach(), "kinematic": zero}
+        batch = self._select_effective_examples(batch)
+        emg = batch["emg"]
         batch_size, samples, channels = emg.shape
         if channels != self.student.channels or samples % self.student.patch_samples:
             raise ValueError("emg channels and sample count must match the backbone")
@@ -131,6 +138,31 @@ class PretrainModule(LightningModule):
         kinematic = self._kinematic(student["z_motion"], batch)
         total = self.latent_weight * latent + self.kinematic_weight * kinematic
         return total, {"latent": latent, "ring_equivariance_error": ring_equivariance_error, "kinematic": kinematic}
+
+    def _effective_batch_size(self, batch: Mapping[str, Any]) -> int:
+        emg = batch.get("emg")
+        if not isinstance(emg, torch.Tensor) or emg.ndim < 1:
+            raise ValueError("batch emg must have a batch dimension")
+        example_weight = batch.get("example_weight")
+        if example_weight is None:
+            return int(emg.shape[0])
+        if not isinstance(example_weight, torch.Tensor) or example_weight.shape != emg.shape[:1]:
+            raise ValueError("example_weight must have shape [B]")
+        return int((example_weight > 0).sum().item())
+
+    def _select_effective_examples(self, batch: Mapping[str, Any]) -> dict[str, Any]:
+        """Exclude collator padding examples from every tensor used by losses."""
+        emg = batch["emg"]
+        example_weight = batch.get("example_weight")
+        if example_weight is None:
+            return dict(batch)
+        included = example_weight > 0
+        if bool(included.all()):
+            return dict(batch)
+        return {
+            key: value[included] if key in {"emg", "sample_mask", "target", "target_mask"} and isinstance(value, torch.Tensor) else value
+            for key, value in batch.items()
+        }
 
     def _kinematic(self, motion: torch.Tensor, batch: Mapping[str, Any]) -> torch.Tensor:
         if self.kinematic_adapter is None:

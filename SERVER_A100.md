@@ -27,27 +27,33 @@ batch size** fixed when changing device count: with the base
 
 ```bash
 # Pretraining on 1 / 2 / 4 / 8 devices
-CANONICAL_META=/absolute/path/to/canonical_meta
-RUN_DIR=/absolute/path/to/outputs/run
+CANONICAL_META="/absolute/path/to/canonical_meta"
+RUN_DIR_1="/absolute/path/to/outputs/run_1"
+RUN_DIR_2="/absolute/path/to/outputs/run_2"
+RUN_DIR_4="/absolute/path/to/outputs/run_4"
+RUN_DIR_8="/absolute/path/to/outputs/run_8"
 python pretrain.py trainer=a100_ddp trainer.devices=1 trainer.accumulate_grad_batches=8 \
   data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
-  hydra.run.dir="${RUN_DIR}" seed=0
+  hydra.run.dir="${RUN_DIR_1}" seed=0
 python pretrain.py trainer=a100_ddp trainer.devices=2 trainer.accumulate_grad_batches=4 \
   data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
-  hydra.run.dir="${RUN_DIR}" seed=0
+  hydra.run.dir="${RUN_DIR_2}" seed=0
 python pretrain.py trainer=a100_ddp trainer.devices=4 trainer.accumulate_grad_batches=2 \
   data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
-  hydra.run.dir="${RUN_DIR}" seed=0
+  hydra.run.dir="${RUN_DIR_4}" seed=0
 python pretrain.py trainer=a100_ddp trainer.devices=8 trainer.accumulate_grad_batches=1 \
   data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
-  hydra.run.dir="${RUN_DIR}" seed=0
+  hydra.run.dir="${RUN_DIR_8}" seed=0
 
 # Downstream fine-tune and evaluate use the same trainer group
+RUN_DIR="/absolute/path/to/outputs/finetune_pose"
 python finetune.py trainer=a100_ddp trainer.devices=4 task=pose \
   data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
   finetune_mode=full label_budget=1.0 hydra.run.dir="${RUN_DIR}"
+CHECKPOINT_RUN_DIR="/absolute/path/to/outputs/pretrain_pose"
+RUN_DIR="/absolute/path/to/outputs/evaluate_pose"
 python evaluate.py trainer=a100_ddp trainer.devices=4 task=pose \
-  checkpoint_path="${RUN_DIR}/checkpoints/last.ckpt" data.root="${CANONICAL_META}" \
+  checkpoint_path="${CHECKPOINT_RUN_DIR}/checkpoints/last.ckpt" data.root="${CANONICAL_META}" \
   data.manifest_path="${CANONICAL_META}/splits.csv" hydra.run.dir="${RUN_DIR}"
 ```
 
@@ -61,8 +67,8 @@ continuation, use `last.ckpt` created after a completed epoch (an
 epoch-boundary checkpoint):
 
 ```bash
-CANONICAL_META=/absolute/path/to/canonical_meta
-RUN_DIR=/absolute/path/to/outputs/run
+CANONICAL_META="/absolute/path/to/canonical_meta"
+RUN_DIR="/absolute/path/to/outputs/run"
 python pretrain.py trainer=a100_ddp \
   data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
   resume_from="${RUN_DIR}/checkpoints/last.ckpt"
@@ -81,8 +87,8 @@ position deterministically.
 Before long runs, verify NCCL across N devices:
 
 ```bash
-CANONICAL_META=/absolute/path/to/canonical_meta
-RUN_DIR=/absolute/path/to/outputs/run
+CANONICAL_META="/absolute/path/to/canonical_meta"
+RUN_DIR="/absolute/path/to/outputs/run"
 python run_baseline.py stage=pretrain model=bendr trainer=a100_ddp trainer.devices=4 \
   trainer.fast_dev_run=true data.root="${CANONICAL_META}" \
   data.manifest_path="${CANONICAL_META}/splits.csv" data.num_workers=4 \
@@ -94,8 +100,8 @@ The test suite does not claim NCCL coverage; run this smoke on the server.
 ## Diagnostics
 
 ```bash
-CANONICAL_META=/absolute/path/to/canonical_meta
-RUN_DIR=/absolute/path/to/outputs/run
+CANONICAL_META="/absolute/path/to/canonical_meta"
+RUN_DIR="/absolute/path/to/outputs/run"
 NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,NET python pretrain.py trainer=a100_ddp \
   data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
   hydra.run.dir="${RUN_DIR}"
