@@ -6,6 +6,7 @@ import torch
 from lightning import Trainer
 from torch.utils.data import DataLoader, Dataset
 
+import semg_fm.lightning.pretrain_module as pretrain_module
 from semg_fm.models import RingCrissCrossEncoder
 from semg_fm.lightning.pretrain_module import PretrainModule
 
@@ -59,15 +60,39 @@ def test_teacher_starts_as_frozen_copy_of_student():
         assert not teacher.requires_grad
 
 
-def test_ring_equivariance_is_a_detached_diagnostic_not_an_optimized_loss():
+def test_ring_equivariance_is_a_detached_diagnostic_not_an_optimized_loss(monkeypatch):
     module = _module()
+    module.latent_weight = 2.0
+    module.ring_weight = 3.0
+    module.kinematic_weight = 5.0
+    monkeypatch.setattr(
+        pretrain_module,
+        "ring_equivariance_loss",
+        lambda field, motion, shifted_field, shifted_motion, shift: field.new_tensor(7.0),
+    )
     batch = _collate([_TinyPretrainDataset()[0], _TinyPretrainDataset()[1]])
 
     total, losses = module._losses(batch)
 
     assert "ring_equivariance_error" in losses
     assert not losses["ring_equivariance_error"].requires_grad
-    assert torch.equal(total, losses["latent"] + losses["kinematic"])
+    assert torch.equal(total, module.latent_weight * losses["latent"] + module.kinematic_weight * losses["kinematic"])
+
+
+def test_log_records_ring_equivariance_as_a_metric_without_loss_suffix(monkeypatch):
+    module = _module()
+    names: list[str] = []
+    monkeypatch.setattr(module, "log", lambda name, value, **kwargs: names.append(name))
+
+    module._log(
+        "train",
+        torch.tensor(1.0),
+        {"latent": torch.tensor(2.0), "ring_equivariance_error": torch.tensor(3.0), "kinematic": torch.tensor(4.0)},
+        batch_size=2,
+    )
+
+    assert "train/ring_equivariance_error" in names
+    assert "train/ring_equivariance_error_loss" not in names
 
 
 def test_ema_updates_only_after_optimizer_step_and_teacher_has_no_grads():

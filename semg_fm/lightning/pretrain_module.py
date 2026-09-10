@@ -153,7 +153,8 @@ class PretrainModule(LightningModule):
         on_step = stage == "train"
         self.log(f"{stage}/loss", total, on_step=on_step, on_epoch=True, sync_dist=True, batch_size=batch_size)
         for name, value in losses.items():
-            self.log(f"{stage}/{name}_loss", value, on_step=on_step, on_epoch=True, sync_dist=True, batch_size=batch_size)
+            metric = f"{stage}/ring_equivariance_error" if name == "ring_equivariance_error" else f"{stage}/{name}_loss"
+            self.log(metric, value, on_step=on_step, on_epoch=True, sync_dist=True, batch_size=batch_size)
 
     def _lr_scale(self, step: int) -> float:
         if self.warmup_steps and step < self.warmup_steps:
