@@ -1,4 +1,4 @@
-"""Convert emg2pose source HDF5 records into canonical per-wrist HDF5 files."""
+"""将 emg2pose 源 HDF5 记录转换为 canonical 的单腕 HDF5 文件。"""
 
 import argparse
 import csv

@@ -1,4 +1,4 @@
-"""Regression coverage for standalone Meta converter safety and provenance."""
+"""独立 Meta 转换器安全防护与数据溯源的回归测试。"""
 
 import csv
 import importlib.util

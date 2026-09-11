@@ -1,44 +1,44 @@
-# Ring Criss-Cross sEMG Foundation Model Implementation Plan
+# Ring Criss-Cross sEMG 基座模型实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic workers：** 必需子技能（REQUIRED SUB-SKILL）：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实施本计划。步骤使用复选框语法（`- [ ]`）跟踪进度。
 
-**Goal:** Build a PyTorch Lightning and Hydra research stack that pretrains CIRCE-Myo on the five canonical Meta 16-channel H5 corpora, evaluates five downstream tasks, and runs four fair comparison methods.
+**目标：** 构建一套 PyTorch Lightning 与 Hydra 研究栈，在五个 canonical Meta 16 通道 H5 语料上预训练 CIRCE-Myo，评测五个下游任务，并运行四种公平对比方法。
 
-**Architecture:** Keep the five standalone converters unchanged. Add a `semg_fm` package with a lazy canonical-H5 data layer, a Ring Criss-Cross backbone, pretraining objectives, comparison backbones, downstream heads, metrics, and thin Hydra entry points. Every behavior is first specified by a failing pytest, then implemented minimally and verified before the next commit.
+**架构：** 保持五个独立转换器不变。新增 `semg_fm` 包，包含惰性 canonical-H5 数据层、Ring Criss-Cross 骨干、预训练目标函数、对比骨干、下游头、指标，以及轻薄的 Hydra 入口。每项行为都先由一个失败的 pytest 规定，再以最小实现完成，验证通过后才进入下一次提交。
 
-**Tech Stack:** Python 3.10+, PyTorch 2.2+, Lightning 2.2+, Hydra 1.3+, h5py, NumPy, pandas, torchmetrics, pytest.
+**技术栈：** Python 3.10+、PyTorch 2.2+、Lightning 2.2+、Hydra 1.3+、h5py、NumPy、pandas、torchmetrics、pytest。
 
 ---
 
-## File Map
+## 文件地图
 
-- `semg_fm/data`: manifest validation, group splits, lazy H5 windows, labels, augmentation, balanced sampling, Lightning DataModule.
-- `semg_fm/models`: shared patch encoder, circular attention, CIRCE-Myo, and four comparison encoders.
-- `semg_fm/objectives`: masking, continuous teacher loss, ring equivariance, kinematic loss, and VQ diagnostics.
-- `semg_fm/lightning`: pretraining, downstream, and baseline LightningModules.
-- `semg_fm/metrics`: regression, classification/event, edit-distance, and robustness aggregation.
-- `configs`: Hydra composition for data, model, task, trainer, and robustness settings.
-- `pretrain.py`, `finetune.py`, `evaluate.py`, `run_baseline.py`: public commands.
-- `tests`: synthetic canonical H5 fixtures, unit tests, and CPU fast-development integration tests.
-- Markdown files at repository root: installation, data contract, pretraining, downstream evaluation, baselines, experiment protocol, and A100 operation.
+- `semg_fm/data`：manifest 校验、分组划分、惰性 H5 窗口、标签、数据增强、均衡采样、Lightning DataModule。
+- `semg_fm/models`：共享 patch 编码器、环形注意力、CIRCE-Myo，以及四个对比编码器。
+- `semg_fm/objectives`：掩码、连续教师损失、环形等变性、运动学损失与 VQ 诊断。
+- `semg_fm/lightning`：预训练、下游与基线 LightningModule。
+- `semg_fm/metrics`：回归、分类/事件、编辑距离与鲁棒性聚合。
+- `configs`：面向数据、模型、任务、trainer 与鲁棒性设置的 Hydra 组合。
+- `pretrain.py`、`finetune.py`、`evaluate.py`、`run_baseline.py`：公开命令。
+- `tests`：合成的 canonical H5 fixture、单元测试与 CPU 快速开发集成测试。
+- 仓库根目录的 Markdown 文件：安装、数据契约、预训练、下游评测、基线、实验协议与 A100 运维。
 
-### Task 1: Training dependencies and Hydra composition
+### 任务 1：训练依赖与 Hydra 组合
 
-**Files:**
-- Create: `requirements-train.txt`
-- Create: `semg_fm/__init__.py`
-- Create: `semg_fm/config.py`
-- Create: `configs/pretrain.yaml`
-- Create: `configs/finetune.yaml`
-- Create: `configs/evaluate.yaml`
-- Create: `configs/baseline.yaml`
-- Create: `configs/data/canonical_meta.yaml`
-- Create: `configs/model/ring_criss_cross.yaml`
-- Create: `configs/trainer/cpu_smoke.yaml`
-- Create: `configs/trainer/a100_ddp.yaml`
-- Test: `tests/test_hydra_config.py`
+**文件：**
+- 新建：`requirements-train.txt`
+- 新建：`semg_fm/__init__.py`
+- 新建：`semg_fm/config.py`
+- 新建：`configs/pretrain.yaml`
+- 新建：`configs/finetune.yaml`
+- 新建：`configs/evaluate.yaml`
+- 新建：`configs/baseline.yaml`
+- 新建：`configs/data/canonical_meta.yaml`
+- 新建：`configs/model/ring_criss_cross.yaml`
+- 新建：`configs/trainer/cpu_smoke.yaml`
+- 新建：`configs/trainer/a100_ddp.yaml`
+- 测试：`tests/test_hydra_config.py`
 
-- [ ] **Step 1: Write the failing configuration tests**
+- [ ] **步骤 1：编写失败的配置测试**
 
 ```python
 from hydra import compose, initialize_config_dir
@@ -64,14 +64,14 @@ def test_cpu_smoke_profile_disables_distributed_training():
     assert cfg.trainer.strategy == "auto"
 ```
 
-- [ ] **Step 2: Run the test and verify the missing configuration failure**
+- [ ] **步骤 2：运行测试并确认因配置缺失而失败**
 
-Run: `python -m pytest tests/test_hydra_config.py -q`  
-Expected: FAIL because `configs/pretrain.yaml` and `semg_fm.config` do not exist.
+运行：`python -m pytest tests/test_hydra_config.py -q`  
+预期：FAIL，因为 `configs/pretrain.yaml` 与 `semg_fm.config` 不存在。
 
-- [ ] **Step 3: Implement the dependency and configuration contracts**
+- [ ] **步骤 3：实现依赖与配置契约**
 
-`requirements-train.txt` must pin compatible major/minor floors:
+`requirements-train.txt` 必须锁定兼容的主/次版本下限：
 
 ```text
 -r requirements.txt
@@ -83,7 +83,7 @@ torchmetrics>=1.3
 pytest>=7.0
 ```
 
-`semg_fm/config.py` defines a small validator used by entry points:
+`semg_fm/config.py` 定义了一个供各入口使用的小型校验器：
 
 ```python
 def validate_devices(devices: int | str) -> None:
@@ -93,29 +93,29 @@ def validate_devices(devices: int | str) -> None:
         raise ValueError("trainer.devices must be 'auto' or an integer from 1 to 8")
 ```
 
-The pretraining defaults must compose `data=canonical_meta`, `model=ring_criss_cross`, and `trainer=a100_ddp`; CPU smoke uses `accelerator: cpu`, `devices: 1`, `strategy: auto`, `precision: 32-true`, and `fast_dev_run: true`. A100 uses `accelerator: gpu`, `devices: auto`, `strategy: auto`, and `precision: bf16-mixed`.
+预训练默认值必须组合 `data=canonical_meta`、`model=ring_criss_cross` 与 `trainer=a100_ddp`；CPU smoke 使用 `accelerator: cpu`、`devices: 1`、`strategy: auto`、`precision: 32-true` 与 `fast_dev_run: true`。A100 使用 `accelerator: gpu`、`devices: auto`、`strategy: auto` 与 `precision: bf16-mixed`。
 
-- [ ] **Step 4: Run the focused test**
+- [ ] **步骤 4：运行聚焦测试**
 
-Run: `python -m pytest tests/test_hydra_config.py -q`  
-Expected: PASS.
+运行：`python -m pytest tests/test_hydra_config.py -q`  
+预期：PASS。
 
-- [ ] **Step 5: Commit the configuration foundation**
+- [ ] **步骤 5：提交配置基础**
 
 ```powershell
 git add requirements-train.txt semg_fm/__init__.py semg_fm/config.py configs tests/test_hydra_config.py
 git commit -m "build: add lightning hydra training configuration"
 ```
 
-### Task 2: Synthetic canonical H5 fixtures and manifest validation
+### 任务 2：合成 canonical H5 fixture 与 manifest 校验
 
-**Files:**
-- Modify: `tests/conftest.py`
-- Create: `semg_fm/data/__init__.py`
-- Create: `semg_fm/data/manifest.py`
-- Test: `tests/test_fm_manifest.py`
+**文件：**
+- 修改：`tests/conftest.py`
+- 新建：`semg_fm/data/__init__.py`
+- 新建：`semg_fm/data/manifest.py`
+- 测试：`tests/test_fm_manifest.py`
 
-- [ ] **Step 1: Write the failing manifest tests**
+- [ ] **步骤 1：编写失败的 manifest 测试**
 
 ```python
 import pandas as pd
@@ -138,14 +138,14 @@ def test_manifest_rejects_missing_required_columns(tmp_path):
         load_manifest(path, tmp_path)
 ```
 
-`canonical_meta_root` creates one small, finite `[T,16]` H5 for every task and a qwerty left/right pair with the same `pair_id`. It writes each real task-specific label structure used by the converters.
+`canonical_meta_root` 为每个任务创建一个小的、取值有限的 `[T,16]` H5，并创建一个共享同一 `pair_id` 的 qwerty 左右配对。它写入转换器所使用的每种真实的任务专属标签结构。
 
-- [ ] **Step 2: Verify the tests fail because the data package is absent**
+- [ ] **步骤 2：确认测试因 data 包缺失而失败**
 
-Run: `python -m pytest tests/test_fm_manifest.py -q`  
-Expected: FAIL with `ModuleNotFoundError: semg_fm.data`.
+运行：`python -m pytest tests/test_fm_manifest.py -q`  
+预期：FAIL，报 `ModuleNotFoundError: semg_fm.data`。
 
-- [ ] **Step 3: Implement manifest validation**
+- [ ] **步骤 3：实现 manifest 校验**
 
 ```python
 REQUIRED_COLUMNS = {
@@ -168,26 +168,26 @@ def load_manifest(path, root):
     return frame
 ```
 
-- [ ] **Step 4: Run the focused tests**
+- [ ] **步骤 4：运行聚焦测试**
 
-Run: `python -m pytest tests/test_fm_manifest.py -q`  
-Expected: PASS.
+运行：`python -m pytest tests/test_fm_manifest.py -q`  
+预期：PASS。
 
-- [ ] **Step 5: Commit fixtures and manifest loader**
+- [ ] **步骤 5：提交 fixture 与 manifest 加载器**
 
 ```powershell
 git add tests/conftest.py tests/test_fm_manifest.py semg_fm/data
 git commit -m "feat: validate canonical training manifests"
 ```
 
-### Task 3: Deterministic group splits without leakage
+### 任务 3：无泄漏的确定性分组划分
 
-**Files:**
-- Create: `semg_fm/data/splits.py`
-- Create: `make_splits.py`
-- Test: `tests/test_fm_splits.py`
+**文件：**
+- 新建：`semg_fm/data/splits.py`
+- 新建：`make_splits.py`
+- 测试：`tests/test_fm_splits.py`
 
-- [ ] **Step 1: Write failing split tests**
+- [ ] **步骤 1：编写失败的划分测试**
 
 ```python
 from semg_fm.data.splits import assign_group_splits, assert_no_leakage
@@ -206,36 +206,36 @@ def test_assignment_is_deterministic(manifest_frame):
     assert a[["path", "split"]].equals(b[["path", "split"]])
 ```
 
-- [ ] **Step 2: Verify the missing split implementation failure**
+- [ ] **步骤 2：确认因划分实现缺失而失败**
 
-Run: `python -m pytest tests/test_fm_splits.py -q`  
-Expected: FAIL with import error for `semg_fm.data.splits`.
+运行：`python -m pytest tests/test_fm_splits.py -q`  
+预期：FAIL，导入 `semg_fm.data.splits` 时报错。
 
-- [ ] **Step 3: Implement group assignment and CLI**
+- [ ] **步骤 3：实现分组分配与 CLI**
 
-Use `pair_id` when non-empty; otherwise use the tuple `(dataset_id, subject_id)`. Hash `f"{seed}:{group_key}"` with SHA-256, map the first eight bytes to `[0,1)`, and assign train/val/test by cumulative ratios. `assert_no_leakage` must reject repeated subject groups or pair IDs in different splits. `make_splits.py` reads a manifest, preserves non-empty official splits, assigns only missing rows, validates leakage, and writes `split_manifest.csv`.
+当 `pair_id` 非空时使用 `pair_id`；否则使用元组 `(dataset_id, subject_id)`。对 `f"{seed}:{group_key}"` 做 SHA-256 哈希，把前八个字节映射到 `[0,1)`，再按累计比例分配 train/val/test。`assert_no_leakage` 必须拒绝同一受试者分组或同一 pair ID 出现在不同 split 中。`make_splits.py` 读取 manifest，保留非空的官方 split，只为缺失行分配，校验泄漏，并写出 `split_manifest.csv`。
 
-- [ ] **Step 4: Run split tests and a fixture CLI check**
+- [ ] **步骤 4：运行划分测试与一次 fixture CLI 检查**
 
-Run: `python -m pytest tests/test_fm_splits.py -q`  
-Expected: PASS.
+运行：`python -m pytest tests/test_fm_splits.py -q`  
+预期：PASS。
 
-- [ ] **Step 5: Commit split management**
+- [ ] **步骤 5：提交划分管理**
 
 ```powershell
 git add semg_fm/data/splits.py make_splits.py tests/test_fm_splits.py
 git commit -m "feat: add leakage-safe subject splits"
 ```
 
-### Task 4: Lazy H5 window dataset and task-label alignment
+### 任务 4：惰性 H5 窗口数据集与任务标签对齐
 
-**Files:**
-- Create: `semg_fm/data/task_labels.py`
-- Create: `semg_fm/data/window_dataset.py`
-- Test: `tests/test_window_dataset.py`
-- Test: `tests/test_task_labels.py`
+**文件：**
+- 新建：`semg_fm/data/task_labels.py`
+- 新建：`semg_fm/data/window_dataset.py`
+- 测试：`tests/test_window_dataset.py`
+- 测试：`tests/test_task_labels.py`
 
-- [ ] **Step 1: Write failing dataset and alignment tests**
+- [ ] **步骤 1：编写失败的数据集与对齐测试**
 
 ```python
 import torch
@@ -266,37 +266,37 @@ def test_handwriting_returns_prompt_text_without_character_times(handwriting_dat
     assert "character_times" not in item
 ```
 
-- [ ] **Step 2: Verify failure before dataset implementation**
+- [ ] **步骤 2：在实现数据集之前确认失败**
 
-Run: `python -m pytest tests/test_window_dataset.py tests/test_task_labels.py -q`  
-Expected: FAIL because `CanonicalWindowDataset` and label adapters are missing.
+运行：`python -m pytest tests/test_window_dataset.py tests/test_task_labels.py -q`  
+预期：FAIL，因为 `CanonicalWindowDataset` 与标签适配器尚不存在。
 
-- [ ] **Step 3: Implement lazy access and five adapters**
+- [ ] **步骤 3：实现惰性访问与五个适配器**
 
-`CanonicalWindowDataset` stores only record paths and integer sample bounds. `__getitem__` opens the H5 file in a context manager, reads only the selected EMG slice, validates `[window_samples,16]`, and calls `parse_target(task_id, h5, start_s, end_s, start_index, end_index)`. Implement adapters for pose, wrist targets, gesture events, handwriting prompts, and qwerty keystrokes/prompts. Text fields decode both bytes and UTF-8 strings. Empty target windows carry an explicit empty target rather than a fabricated label.
+`CanonicalWindowDataset` 只存储记录路径与整数样本边界。`__getitem__` 在上下文管理器中打开 H5 文件，只读取选中的 EMG 切片，校验 `[window_samples,16]`，并调用 `parse_target(task_id, h5, start_s, end_s, start_index, end_index)`。为 pose、wrist 目标、gesture 事件、handwriting 提示文本与 qwerty 击键/提示文本实现适配器。文本字段同时解码 bytes 与 UTF-8 字符串。空目标窗口携带显式的空目标，而不是伪造的标签。
 
-- [ ] **Step 4: Run focused dataset tests**
+- [ ] **步骤 4：运行聚焦的数据集测试**
 
-Run: `python -m pytest tests/test_window_dataset.py tests/test_task_labels.py -q`  
-Expected: PASS.
+运行：`python -m pytest tests/test_window_dataset.py tests/test_task_labels.py -q`  
+预期：PASS。
 
-- [ ] **Step 5: Commit the canonical dataset layer**
+- [ ] **步骤 5：提交 canonical 数据集层**
 
 ```powershell
 git add semg_fm/data/task_labels.py semg_fm/data/window_dataset.py tests/test_window_dataset.py tests/test_task_labels.py
 git commit -m "feat: load aligned canonical semg windows"
 ```
 
-### Task 5: Physical augmentation, collation, sampling, and DataModule
+### 任务 5：物理数据增强、批组装、采样与 DataModule
 
-**Files:**
-- Create: `semg_fm/data/augment.py`
-- Create: `semg_fm/data/samplers.py`
-- Create: `semg_fm/data/datamodule.py`
-- Test: `tests/test_augment.py`
-- Test: `tests/test_datamodule.py`
+**文件：**
+- 新建：`semg_fm/data/augment.py`
+- 新建：`semg_fm/data/samplers.py`
+- 新建：`semg_fm/data/datamodule.py`
+- 测试：`tests/test_augment.py`
+- 测试：`tests/test_datamodule.py`
 
-- [ ] **Step 1: Write failing physical-augmentation tests**
+- [ ] **步骤 1：编写失败的物理增强测试**
 
 ```python
 import torch
@@ -317,37 +317,37 @@ def test_contiguous_dropout_wraps_across_ring_boundary():
     assert y[:, [0, 15]].count_nonzero() == 0
 ```
 
-- [ ] **Step 2: Verify augmentation tests fail**
+- [ ] **步骤 2：确认增强测试失败**
 
-Run: `python -m pytest tests/test_augment.py tests/test_datamodule.py -q`  
-Expected: FAIL because augmentation and DataModule modules are absent.
+运行：`python -m pytest tests/test_augment.py tests/test_datamodule.py -q`  
+预期：FAIL，因为数据增强与 DataModule 模块尚不存在。
 
-- [ ] **Step 3: Implement augmentation and batching**
+- [ ] **步骤 3：实现增强与批处理**
 
-Implement channel rolling with `torch.roll`, modular contiguous indices, gain drift, additive noise, and time-block dropout. Return a boolean observation mask for every destructive transform. Implement task-homogeneous collation and a deterministic task-balanced batch sampler whose `set_epoch` changes ordering. `CanonicalDataModule` builds train/validation/test datasets from one split manifest and passes Lightning rank/world-size information to the sampler.
+用 `torch.roll` 实现通道滚动，以及模运算下的连续索引、增益漂移、加性噪声与时间块 dropout。对每个破坏性变换返回布尔观测掩码。实现任务同质的批组装，以及一个确定性的任务均衡批采样器，其 `set_epoch` 会改变顺序。`CanonicalDataModule` 依据同一份 split manifest 构建 train/validation/test 数据集，并把 Lightning 的 rank/world-size 信息传给采样器。
 
-- [ ] **Step 4: Run focused data pipeline tests**
+- [ ] **步骤 4：运行聚焦的数据管线测试**
 
-Run: `python -m pytest tests/test_augment.py tests/test_datamodule.py -q`  
-Expected: PASS.
+运行：`python -m pytest tests/test_augment.py tests/test_datamodule.py -q`  
+预期：PASS。
 
-- [ ] **Step 5: Commit the distributed data pipeline**
+- [ ] **步骤 5：提交分布式数据管线**
 
 ```powershell
 git add semg_fm/data tests/test_augment.py tests/test_datamodule.py
 git commit -m "feat: add physical augmentation and task-balanced loading"
 ```
 
-### Task 6: Multi-scale patch encoder and circular attention
+### 任务 6：多尺度 patch 编码器与环形注意力
 
-**Files:**
-- Create: `semg_fm/models/__init__.py`
-- Create: `semg_fm/models/patch_encoder.py`
-- Create: `semg_fm/models/ring_attention.py`
-- Test: `tests/test_patch_encoder.py`
-- Test: `tests/test_ring_attention.py`
+**文件：**
+- 新建：`semg_fm/models/__init__.py`
+- 新建：`semg_fm/models/patch_encoder.py`
+- 新建：`semg_fm/models/ring_attention.py`
+- 测试：`tests/test_patch_encoder.py`
+- 测试：`tests/test_ring_attention.py`
 
-- [ ] **Step 1: Write failing shape and boundary tests**
+- [ ] **步骤 1：编写失败的形状与边界测试**
 
 ```python
 import torch
@@ -368,35 +368,35 @@ def test_ring_offsets_make_endpoints_neighbors():
     assert int(offsets[0, 8]) in {-8, 8}
 ```
 
-- [ ] **Step 2: Verify missing-model failures**
+- [ ] **步骤 2：确认因模型缺失而失败**
 
-Run: `python -m pytest tests/test_patch_encoder.py tests/test_ring_attention.py -q`  
-Expected: FAIL with import errors.
+运行：`python -m pytest tests/test_patch_encoder.py tests/test_ring_attention.py -q`  
+预期：FAIL，报导入错误。
 
-- [ ] **Step 3: Implement encoder and ring-relative attention**
+- [ ] **步骤 3：实现编码器与环相对注意力**
 
-The time branch applies grouped temporal convolution to each channel. The spectral branch computes `log1p(abs(rfft(patch)))` and projects a fixed number of frequency bins. Concatenate and linearly project both branches to `d_model`. `RingMultiheadAttention` computes scaled dot-product attention and adds a learnable bias table indexed by signed circular offsets before softmax. It accepts an electrode-observation mask and never attends to missing electrodes.
+时间分支对每个通道施加分组时间卷积。频谱分支计算 `log1p(abs(rfft(patch)))` 并投影固定数量的频点。将两个分支拼接后线性投影到 `d_model`。`RingMultiheadAttention` 计算缩放点积注意力，并在 softmax 之前加上一张以带符号环形偏移为索引的可学习偏置表。它接受电极观测掩码，且永远不会关注缺失电极。
 
-- [ ] **Step 4: Run focused model tests**
+- [ ] **步骤 4：运行聚焦的模型测试**
 
-Run: `python -m pytest tests/test_patch_encoder.py tests/test_ring_attention.py -q`  
-Expected: PASS, including finite outputs with one missing channel.
+运行：`python -m pytest tests/test_patch_encoder.py tests/test_ring_attention.py -q`  
+预期：PASS，包括存在一个缺失通道时输出仍为有限值。
 
-- [ ] **Step 5: Commit patch and ring primitives**
+- [ ] **步骤 5：提交 patch 与 ring 原语**
 
 ```powershell
 git add semg_fm/models tests/test_patch_encoder.py tests/test_ring_attention.py
 git commit -m "feat: encode multiscale circular semg patches"
 ```
 
-### Task 7: Ring Criss-Cross backbone and equivariance
+### 任务 7：Ring Criss-Cross 骨干与等变性
 
-**Files:**
-- Create: `semg_fm/models/ring_criss_cross.py`
-- Create: `configs/model/ring_criss_cross.yaml`
-- Test: `tests/test_ring_criss_cross.py`
+**文件：**
+- 新建：`semg_fm/models/ring_criss_cross.py`
+- 新建：`configs/model/ring_criss_cross.yaml`
+- 测试：`tests/test_ring_criss_cross.py`
 
-- [ ] **Step 1: Write the failing backbone tests**
+- [ ] **步骤 1：编写失败的骨干测试**
 
 ```python
 import torch
@@ -420,38 +420,38 @@ def test_field_rolls_and_motion_stays_stable_under_channel_shift():
     assert torch.allclose(a["z_motion"], b["z_motion"], atol=1e-5, rtol=1e-4)
 ```
 
-- [ ] **Step 2: Verify the backbone tests fail**
+- [ ] **步骤 2：确认骨干测试失败**
 
-Run: `python -m pytest tests/test_ring_criss_cross.py -q`  
-Expected: FAIL because `RingCrissCrossEncoder` is absent.
+运行：`python -m pytest tests/test_ring_criss_cross.py -q`  
+预期：FAIL，因为 `RingCrissCrossEncoder` 不存在。
 
-- [ ] **Step 3: Implement parallel temporal/ring blocks**
+- [ ] **步骤 3：实现并行的时序/环形块**
 
-Each block normalizes once, reshapes for `nn.MultiheadAttention` over time and `RingMultiheadAttention` over channels, restores `[B,16,N,D]`, and fuses residuals using `softmax(gate_logits)` weights. Feed-forward layers operate pointwise. Avoid absolute channel embeddings. Compute `z_motion` with mean pooling over the channel orbit, respecting the observation mask.
+每个块只做一次归一化，为时间维度上的 `nn.MultiheadAttention` 与通道维度上的 `RingMultiheadAttention` 分别重塑张量，恢复为 `[B,16,N,D]`，并用 `softmax(gate_logits)` 权重融合残差。前馈层逐点作用。避免使用绝对通道 embedding。在通道轨道上做均值池化计算 `z_motion`，并遵守观测掩码。
 
-- [ ] **Step 4: Run backbone and primitive tests**
+- [ ] **步骤 4：运行骨干与原语测试**
 
-Run: `python -m pytest tests/test_ring_criss_cross.py tests/test_ring_attention.py -q`  
-Expected: PASS.
+运行：`python -m pytest tests/test_ring_criss_cross.py tests/test_ring_attention.py -q`  
+预期：PASS。
 
-- [ ] **Step 5: Commit CIRCE-Myo backbone**
+- [ ] **步骤 5：提交 CIRCE-Myo 骨干**
 
 ```powershell
 git add semg_fm/models/ring_criss_cross.py configs/model/ring_criss_cross.yaml tests/test_ring_criss_cross.py
 git commit -m "feat: add ring criss-cross semg encoder"
 ```
 
-### Task 8: Masking, continuous teacher, equivariance, and kinematic losses
+### 任务 8：掩码、连续教师、等变性与运动学损失
 
-**Files:**
-- Create: `semg_fm/objectives/__init__.py`
-- Create: `semg_fm/objectives/masking.py`
-- Create: `semg_fm/objectives/masked_latent.py`
-- Create: `semg_fm/objectives/ring_equivariance.py`
-- Create: `semg_fm/objectives/kinematic.py`
-- Test: `tests/test_pretrain_objectives.py`
+**文件：**
+- 新建：`semg_fm/objectives/__init__.py`
+- 新建：`semg_fm/objectives/masking.py`
+- 新建：`semg_fm/objectives/masked_latent.py`
+- 新建：`semg_fm/objectives/ring_equivariance.py`
+- 新建：`semg_fm/objectives/kinematic.py`
+- 测试：`tests/test_pretrain_objectives.py`
 
-- [ ] **Step 1: Write failing objective tests**
+- [ ] **步骤 1：编写失败的目标函数测试**
 
 ```python
 import torch
@@ -478,38 +478,38 @@ def test_equivariance_loss_aligns_shifted_field():
     assert loss.item() < 1e-7
 ```
 
-- [ ] **Step 2: Verify objective tests fail**
+- [ ] **步骤 2：确认目标函数测试失败**
 
-Run: `python -m pytest tests/test_pretrain_objectives.py -q`  
-Expected: FAIL with import errors.
+运行：`python -m pytest tests/test_pretrain_objectives.py -q`  
+预期：FAIL，报导入错误。
 
-- [ ] **Step 3: Implement masks and losses**
+- [ ] **步骤 3：实现掩码与损失**
 
-`MaskGenerator` returns a boolean `[B,16,N]` grid using configured temporal-span, ring-arc, channel-drop, block, and random-patch probabilities. `masked_latent_loss` combines Smooth-L1 and cosine distance only where mask is true. `ring_equivariance_loss` inverse-rolls the shifted field before comparison and directly compares pooled motion. `kinematic_loss` applies Smooth-L1 only where the target mask is true and returns a differentiable zero when a batch has no kinematic target.
+`MaskGenerator` 按配置的时间跨度、环形弧段、通道丢弃、块与随机 patch 概率，返回布尔型的 `[B,16,N]` 网格。`masked_latent_loss` 仅在 mask 为真的位置组合 Smooth-L1 与余弦距离。`ring_equivariance_loss` 在比较前把被平移的场反向滚回，并直接比较池化后的 motion。`kinematic_loss` 仅在目标掩码为真的位置施加 Smooth-L1，并在某个 batch 没有运动学目标时返回可微的零。
 
-- [ ] **Step 4: Run objective tests**
+- [ ] **步骤 4：运行目标函数测试**
 
-Run: `python -m pytest tests/test_pretrain_objectives.py -q`  
-Expected: PASS.
+运行：`python -m pytest tests/test_pretrain_objectives.py -q`  
+预期：PASS。
 
-- [ ] **Step 5: Commit pretraining objectives**
+- [ ] **步骤 5：提交预训练目标函数**
 
 ```powershell
 git add semg_fm/objectives tests/test_pretrain_objectives.py
 git commit -m "feat: add circe myo pretraining objectives"
 ```
 
-### Task 9: Lightning pretraining module, EMA state, and public entry point
+### 任务 9：Lightning 预训练模块、EMA 状态与公开入口
 
-**Files:**
-- Create: `semg_fm/lightning/__init__.py`
-- Create: `semg_fm/lightning/pretrain_module.py`
-- Create: `semg_fm/registry.py`
-- Create: `pretrain.py`
-- Test: `tests/test_pretrain_module.py`
-- Test: `tests/test_pretrain_smoke.py`
+**文件：**
+- 新建：`semg_fm/lightning/__init__.py`
+- 新建：`semg_fm/lightning/pretrain_module.py`
+- 新建：`semg_fm/registry.py`
+- 新建：`pretrain.py`
+- 测试：`tests/test_pretrain_module.py`
+- 测试：`tests/test_pretrain_smoke.py`
 
-- [ ] **Step 1: Write failing EMA and smoke tests**
+- [ ] **步骤 1：编写失败的 EMA 与 smoke 测试**
 
 ```python
 import torch
@@ -534,37 +534,37 @@ def test_circe_pretraining_fast_dev_run(tiny_pretrain_module, tiny_datamodule):
     assert trainer.global_step == 1
 ```
 
-- [ ] **Step 2: Verify pretraining tests fail**
+- [ ] **步骤 2：确认预训练测试失败**
 
-Run: `python -m pytest tests/test_pretrain_module.py tests/test_pretrain_smoke.py -q`  
-Expected: FAIL because the Lightning module is absent.
+运行：`python -m pytest tests/test_pretrain_module.py tests/test_pretrain_smoke.py -q`  
+预期：FAIL，因为 Lightning 模块不存在。
 
-- [ ] **Step 3: Implement pretraining and Hydra entry point**
+- [ ] **步骤 3：实现预训练与 Hydra 入口**
 
-`PretrainModule` owns student, frozen teacher, mask generator, kinematic adapter, optimizer, and scheduler. It creates an unmasked teacher view under `torch.no_grad()`, creates student and shifted views, computes the three losses, and logs each loss plus task-specific validation values with `sync_dist=True`. `optimizer_step` performs EMA only after the optimizer changes student weights. All teacher parameters live in `state_dict`. `pretrain.py` validates devices, seeds through Lightning, instantiates the registry-selected model and DataModule, snapshots the resolved config and manifest digest, and calls `Trainer.fit(ckpt_path=cfg.resume_from)`.
+`PretrainModule` 持有 student、冻结的 teacher、掩码生成器、运动学适配器、优化器与调度器。它在 `torch.no_grad()` 下创建未掩码的 teacher 视图，创建 student 视图与平移视图，计算三项损失，并用 `sync_dist=True` 记录每项损失以及任务专属的验证值。`optimizer_step` 只在优化器更新完 student 权重之后执行 EMA。所有 teacher 参数都保存在 `state_dict` 中。`pretrain.py` 校验 devices，通过 Lightning 设置随机种子，实例化由 registry 选定的模型与 DataModule，快照解析后的配置与 manifest 摘要，并调用 `Trainer.fit(ckpt_path=cfg.resume_from)`。
 
-- [ ] **Step 4: Run pretraining tests**
+- [ ] **步骤 4：运行预训练测试**
 
-Run: `python -m pytest tests/test_pretrain_module.py tests/test_pretrain_smoke.py -q`  
-Expected: PASS on CPU.
+运行：`python -m pytest tests/test_pretrain_module.py tests/test_pretrain_smoke.py -q`  
+预期：在 CPU 上 PASS。
 
-- [ ] **Step 5: Commit the public pretraining path**
+- [ ] **步骤 5：提交公开预训练路径**
 
 ```powershell
 git add semg_fm/lightning semg_fm/registry.py pretrain.py tests/test_pretrain_module.py tests/test_pretrain_smoke.py
 git commit -m "feat: train circe myo with lightning"
 ```
 
-### Task 10: Supervised TCN and BENDR-style comparison methods
+### 任务 10：监督式 TCN 与 BENDR 风格对比方法
 
-**Files:**
-- Create: `semg_fm/models/supervised_tcn.py`
-- Create: `semg_fm/models/bendr.py`
-- Create: `configs/model/supervised_tcn.yaml`
-- Create: `configs/model/bendr.yaml`
-- Test: `tests/test_baseline_tcn_bendr.py`
+**文件：**
+- 新建：`semg_fm/models/supervised_tcn.py`
+- 新建：`semg_fm/models/bendr.py`
+- 新建：`configs/model/supervised_tcn.yaml`
+- 新建：`configs/model/bendr.yaml`
+- 测试：`tests/test_baseline_tcn_bendr.py`
 
-- [ ] **Step 1: Write failing comparison tests**
+- [ ] **步骤 1：编写失败的对比测试**
 
 ```python
 import torch
@@ -583,38 +583,38 @@ def test_bendr_returns_continuous_context_and_targets():
     assert out["context"].ndim == 3
 ```
 
-- [ ] **Step 2: Verify comparison tests fail**
+- [ ] **步骤 2：确认对比测试失败**
 
-Run: `python -m pytest tests/test_baseline_tcn_bendr.py -q`  
-Expected: FAIL with missing model modules.
+运行：`python -m pytest tests/test_baseline_tcn_bendr.py -q`  
+预期：FAIL，模型模块缺失。
 
-- [ ] **Step 3: Implement the two continuous baselines**
+- [ ] **步骤 3：实现两个连续基线**
 
-The TCN uses causal-capable residual Conv1d blocks and returns `[B,N,D]`. BENDR uses a Conv1d feature encoder followed by a temporal Transformer and exposes uncontextualized continuous targets plus masked contextual features. Its contrastive loss samples negatives from other positions of the same record and excludes the positive index.
+TCN 使用支持因果的残差 Conv1d 块，返回 `[B,N,D]`。BENDR 使用 Conv1d 特征编码器，后接时间 Transformer，并对外暴露未上下文化（uncontextualized）的连续目标与经掩码的上下文特征。其对比损失从同一条记录的其他位置采样负样本，并排除正样本下标。
 
-- [ ] **Step 4: Run focused baseline tests**
+- [ ] **步骤 4：运行聚焦的基线测试**
 
-Run: `python -m pytest tests/test_baseline_tcn_bendr.py -q`  
-Expected: PASS.
+运行：`python -m pytest tests/test_baseline_tcn_bendr.py -q`  
+预期：PASS。
 
-- [ ] **Step 5: Commit TCN and BENDR baselines**
+- [ ] **步骤 5：提交 TCN 与 BENDR 基线**
 
 ```powershell
 git add semg_fm/models/supervised_tcn.py semg_fm/models/bendr.py configs/model tests/test_baseline_tcn_bendr.py
 git commit -m "feat: add supervised tcn and bendr baselines"
 ```
 
-### Task 11: CBraMod-style and AEMG-style comparison methods
+### 任务 11：CBraMod 风格与 AEMG 风格对比方法
 
-**Files:**
-- Create: `semg_fm/models/cbramod.py`
-- Create: `semg_fm/models/aemg.py`
-- Create: `semg_fm/objectives/vector_quantization.py`
-- Create: `configs/model/cbramod.yaml`
-- Create: `configs/model/aemg.yaml`
-- Test: `tests/test_baseline_cbramod_aemg.py`
+**文件：**
+- 新建：`semg_fm/models/cbramod.py`
+- 新建：`semg_fm/models/aemg.py`
+- 新建：`semg_fm/objectives/vector_quantization.py`
+- 新建：`configs/model/cbramod.yaml`
+- 新建：`configs/model/aemg.yaml`
+- 测试：`tests/test_baseline_cbramod_aemg.py`
 
-- [ ] **Step 1: Write failing structural and VQ tests**
+- [ ] **步骤 1：编写失败的结构与 VQ 测试**
 
 ```python
 import torch
@@ -635,40 +635,40 @@ def test_aemg_reports_codebook_health():
     assert float(out["perplexity"]) >= 1.0
 ```
 
-- [ ] **Step 2: Verify missing-baseline failures**
+- [ ] **步骤 2：确认因基线缺失而失败**
 
-Run: `python -m pytest tests/test_baseline_cbramod_aemg.py -q`  
-Expected: FAIL with import errors.
+运行：`python -m pytest tests/test_baseline_cbramod_aemg.py -q`  
+预期：FAIL，报导入错误。
 
-- [ ] **Step 3: Implement both core-mechanism reproductions**
+- [ ] **步骤 3：实现两种核心机制复现**
 
-CBraMod uses the shared time/FFT patch encoder, ordinary channel-order conditional position convolution, parallel temporal and full spatial attention, and a waveform patch reconstruction head. It does not use ring-relative bias. AEMG detects contraction-weighted patches without dropping low-energy patches, applies nearest-neighbor VQ with commitment loss and EMA code updates, and predicts masked token IDs. `codebook_statistics` computes usage counts, perplexity, and the exact fraction of entries unused during an epoch.
+CBraMod 使用共享的时间/FFT patch 编码器、按普通通道顺序的条件位置卷积、并行的时间注意力与全空间注意力，以及一个波形 patch 重建头。它不使用环相对偏置。AEMG 检测经收缩加权的 patch 且不丢弃低能量 patch，应用带 commitment loss 与 EMA 码本更新的最近邻 VQ，并预测被掩码的 token ID。`codebook_statistics` 计算使用计数、困惑度（perplexity），以及一个 epoch 内未被使用条目的精确占比。
 
-- [ ] **Step 4: Run focused baseline tests**
+- [ ] **步骤 4：运行聚焦的基线测试**
 
-Run: `python -m pytest tests/test_baseline_cbramod_aemg.py -q`  
-Expected: PASS.
+运行：`python -m pytest tests/test_baseline_cbramod_aemg.py -q`  
+预期：PASS。
 
-- [ ] **Step 5: Commit CBraMod and AEMG baselines**
+- [ ] **步骤 5：提交 CBraMod 与 AEMG 基线**
 
 ```powershell
 git add semg_fm/models/cbramod.py semg_fm/models/aemg.py semg_fm/objectives/vector_quantization.py configs/model tests/test_baseline_cbramod_aemg.py
 git commit -m "feat: add cbramod and aemg baselines"
 ```
 
-### Task 12: Downstream heads, losses, and metrics
+### 任务 12：下游头、损失与指标
 
-**Files:**
-- Create: `semg_fm/models/heads.py`
-- Create: `semg_fm/metrics/__init__.py`
-- Create: `semg_fm/metrics/regression.py`
-- Create: `semg_fm/metrics/events.py`
-- Create: `semg_fm/metrics/text.py`
-- Create: `semg_fm/tasks.py`
-- Test: `tests/test_downstream_tasks.py`
-- Test: `tests/test_metrics.py`
+**文件：**
+- 新建：`semg_fm/models/heads.py`
+- 新建：`semg_fm/metrics/__init__.py`
+- 新建：`semg_fm/metrics/regression.py`
+- 新建：`semg_fm/metrics/events.py`
+- 新建：`semg_fm/metrics/text.py`
+- 新建：`semg_fm/tasks.py`
+- 测试：`tests/test_downstream_tasks.py`
+- 测试：`tests/test_metrics.py`
 
-- [ ] **Step 1: Write failing metric tests**
+- [ ] **步骤 1：编写失败的指标测试**
 
 ```python
 from semg_fm.metrics.text import character_error_rate
@@ -684,50 +684,50 @@ def test_event_f1_matches_with_declared_tolerance():
     assert result == {"precision": 1.0, "recall": 1.0, "f1": 1.0}
 ```
 
-Add one head/loss shape test for each of pose, wrist, gesture, handwriting CTC, and qwerty CTC.
+为 pose、wrist、gesture、handwriting CTC 与 qwerty CTC 各添加一个 head/loss 形状测试。
 
-- [ ] **Step 2: Verify task and metric tests fail**
+- [ ] **步骤 2：确认任务与指标测试失败**
 
-Run: `python -m pytest tests/test_downstream_tasks.py tests/test_metrics.py -q`  
-Expected: FAIL with missing modules.
+运行：`python -m pytest tests/test_downstream_tasks.py tests/test_metrics.py -q`  
+预期：FAIL，模块缺失。
 
-- [ ] **Step 3: Implement task registry and metrics**
+- [ ] **步骤 3：实现任务注册表与指标**
 
-Regression heads return per-frame outputs and honor boolean target masks. Gesture uses frame logits with an explicit background class and deterministic event decoding. Text heads return time-major CTC log probabilities and use a vocabulary persisted with the checkpoint. Implement original-unit MAE/RMSE/Pearson, macro F1, balanced accuracy, tolerance-based one-to-one event matching, Levenshtein CER, normalized edit distance, and exact prompt accuracy.
+回归头返回逐帧输出，并遵守布尔型目标掩码。Gesture 使用带显式背景类别的逐帧 logits 与确定性事件解码。文本头返回时间主序（time-major）的 CTC 对数概率，并使用随 checkpoint 一并保存的词表。实现原始单位下的 MAE/RMSE/Pearson、macro F1、balanced accuracy、基于容差的一对一事件匹配、Levenshtein CER、归一化编辑距离与精确提示文本准确率。
 
-- [ ] **Step 4: Run downstream unit tests**
+- [ ] **步骤 4：运行下游单元测试**
 
-Run: `python -m pytest tests/test_downstream_tasks.py tests/test_metrics.py -q`  
-Expected: PASS.
+运行：`python -m pytest tests/test_downstream_tasks.py tests/test_metrics.py -q`  
+预期：PASS。
 
-- [ ] **Step 5: Commit downstream contracts**
+- [ ] **步骤 5：提交下游契约**
 
 ```powershell
 git add semg_fm/models/heads.py semg_fm/metrics semg_fm/tasks.py tests/test_downstream_tasks.py tests/test_metrics.py
 git commit -m "feat: add five semg downstream task contracts"
 ```
 
-### Task 13: Fine-tuning, evaluation, and robustness entry points
+### 任务 13：微调、评测与鲁棒性入口
 
-**Files:**
-- Create: `semg_fm/lightning/downstream_module.py`
-- Create: `semg_fm/evaluation.py`
-- Create: `finetune.py`
-- Create: `evaluate.py`
-- Create: `configs/task/emg2pose.yaml`
-- Create: `configs/task/gni_wrist.yaml`
-- Create: `configs/task/gni_gesture.yaml`
-- Create: `configs/task/gni_handwriting.yaml`
-- Create: `configs/task/emg2qwerty.yaml`
-- Create: `configs/robustness/none.yaml`
-- Create: `configs/robustness/channel_rotation.yaml`
-- Create: `configs/robustness/channel_dropout.yaml`
-- Create: `configs/robustness/gain_drift.yaml`
-- Create: `configs/robustness/additive_noise.yaml`
-- Test: `tests/test_downstream_smoke.py`
-- Test: `tests/test_evaluation_outputs.py`
+**文件：**
+- 新建：`semg_fm/lightning/downstream_module.py`
+- 新建：`semg_fm/evaluation.py`
+- 新建：`finetune.py`
+- 新建：`evaluate.py`
+- 新建：`configs/task/emg2pose.yaml`
+- 新建：`configs/task/gni_wrist.yaml`
+- 新建：`configs/task/gni_gesture.yaml`
+- 新建：`configs/task/gni_handwriting.yaml`
+- 新建：`configs/task/emg2qwerty.yaml`
+- 新建：`configs/robustness/none.yaml`
+- 新建：`configs/robustness/channel_rotation.yaml`
+- 新建：`configs/robustness/channel_dropout.yaml`
+- 新建：`configs/robustness/gain_drift.yaml`
+- 新建：`configs/robustness/additive_noise.yaml`
+- 测试：`tests/test_downstream_smoke.py`
+- 测试：`tests/test_evaluation_outputs.py`
 
-- [ ] **Step 1: Write failing five-task smoke and output tests**
+- [ ] **步骤 1：编写失败的五任务 smoke 与输出测试**
 
 ```python
 import json
@@ -746,37 +746,37 @@ def test_evaluation_writes_machine_readable_outputs(tmp_path):
     assert (tmp_path / "predictions.h5").is_file()
 ```
 
-Parameterize a Lightning `fast_dev_run` test over all five task configurations and the three fine-tuning modes: linear probe, partial fine-tune, and full fine-tune.
+对全部五种任务配置与三种微调模式（linear probe、partial fine-tune 与 full fine-tune）参数化一个 Lightning `fast_dev_run` 测试。
 
-- [ ] **Step 2: Verify downstream integration tests fail**
+- [ ] **步骤 2：确认下游集成测试失败**
 
-Run: `python -m pytest tests/test_downstream_smoke.py tests/test_evaluation_outputs.py -q`  
-Expected: FAIL because public downstream modules and writers are missing.
+运行：`python -m pytest tests/test_downstream_smoke.py tests/test_evaluation_outputs.py -q`  
+预期：FAIL，因为公开的下游模块与写出逻辑不存在。
 
-- [ ] **Step 3: Implement fine-tune modes and evaluation outputs**
+- [ ] **步骤 3：实现微调模式与评测输出**
 
-`DownstreamModule` instantiates the task head, freezes backbone parameters according to mode, computes task loss, accumulates per-record predictions, and logs synchronized validation metrics. `evaluate.py` loads a checkpoint, applies one configured in-memory robustness transform, evaluates, and writes `metrics.json`, `per_subject_metrics.csv`, optional `predictions.h5`, copied split CSV, resolved config, and environment details. Rotation values are integer channel shifts; documentation maps 1, 2, 4, and 8 to 22.5, 45, 90, and 180 degrees.
+`DownstreamModule` 实例化任务头，按模式冻结骨干参数，计算任务损失，累积逐记录预测，并记录经同步的验证指标。`evaluate.py` 加载 checkpoint，施加一个配置好的内存内鲁棒性变换，执行评测，并写出 `metrics.json`、`per_subject_metrics.csv`、可选的 `predictions.h5`、划分 CSV 副本、解析后的配置与环境信息。旋转取值是整数通道位移；文档把 1、2、4、8 映射到 22.5、45、90 与 180 度。
 
-- [ ] **Step 4: Run all downstream integration tests**
+- [ ] **步骤 4：运行全部下游集成测试**
 
-Run: `python -m pytest tests/test_downstream_smoke.py tests/test_evaluation_outputs.py -q`  
-Expected: PASS on CPU.
+运行：`python -m pytest tests/test_downstream_smoke.py tests/test_evaluation_outputs.py -q`  
+预期：在 CPU 上 PASS。
 
-- [ ] **Step 5: Commit downstream commands**
+- [ ] **步骤 5：提交下游命令**
 
 ```powershell
 git add semg_fm/lightning/downstream_module.py semg_fm/evaluation.py finetune.py evaluate.py configs/task configs/robustness tests/test_downstream_smoke.py tests/test_evaluation_outputs.py
 git commit -m "feat: fine tune and evaluate five semg tasks"
 ```
 
-### Task 14: Unified baseline Lightning command and CPU smoke suite
+### 任务 14：统一基线 Lightning 命令与 CPU smoke 套件
 
-**Files:**
-- Create: `semg_fm/lightning/baseline_module.py`
-- Create: `run_baseline.py`
-- Test: `tests/test_baseline_smoke.py`
+**文件：**
+- 新建：`semg_fm/lightning/baseline_module.py`
+- 新建：`run_baseline.py`
+- 测试：`tests/test_baseline_smoke.py`
 
-- [ ] **Step 1: Write failing parameterized baseline smoke test**
+- [ ] **步骤 1：编写失败的参数化基线 smoke 测试**
 
 ```python
 import pytest
@@ -792,41 +792,41 @@ def test_baseline_completes_one_cpu_step(name, tiny_datamodule):
     assert trainer.global_step == 1
 ```
 
-- [ ] **Step 2: Verify baseline integration fails**
+- [ ] **步骤 2：确认基线集成失败**
 
-Run: `python -m pytest tests/test_baseline_smoke.py -q`  
-Expected: FAIL because `build_baseline_module` and `BaselineModule` are incomplete.
+运行：`python -m pytest tests/test_baseline_smoke.py -q`  
+预期：FAIL，因为 `build_baseline_module` 与 `BaselineModule` 尚不完整。
 
-- [ ] **Step 3: Implement stage-aware baseline training**
+- [ ] **步骤 3：实现阶段感知的基线训练**
 
-`run_baseline.py` accepts `model=<name>` and `stage=pretrain|finetune`. Supervised TCN rejects `stage=pretrain` with a clear error. BENDR logs continuous contrastive loss, CBraMod logs masked reconstruction loss, and AEMG logs token classification, commitment loss, perplexity, utilization, and dead-code fraction. Fine-tuning uses the same `DownstreamModule` heads and protocols as CIRCE-Myo.
+`run_baseline.py` 接受 `model=<name>` 与 `stage=pretrain|finetune`。监督式 TCN 会以明确的错误拒绝 `stage=pretrain`。BENDR 记录连续对比损失，CBraMod 记录掩码重建损失，AEMG 记录 token 分类、commitment loss、困惑度、使用率与死码占比。微调使用与 CIRCE-Myo 相同的 `DownstreamModule` 头和协议。
 
-- [ ] **Step 4: Run baseline smoke tests**
+- [ ] **步骤 4：运行基线 smoke 测试**
 
-Run: `python -m pytest tests/test_baseline_smoke.py -q`  
-Expected: PASS for four methods.
+运行：`python -m pytest tests/test_baseline_smoke.py -q`  
+预期：四种方法均 PASS。
 
-- [ ] **Step 5: Commit the baseline command**
+- [ ] **步骤 5：提交基线命令**
 
 ```powershell
 git add semg_fm/lightning/baseline_module.py semg_fm/registry.py run_baseline.py tests/test_baseline_smoke.py
 git commit -m "feat: run fair semg comparison methods"
 ```
 
-### Task 15: Reproducibility metadata and checkpoint resume
+### 任务 15：可复现性元数据与 checkpoint 续训
 
-**Files:**
-- Create: `semg_fm/utils/__init__.py`
-- Create: `semg_fm/utils/reproducibility.py`
-- Modify: `semg_fm/lightning/pretrain_module.py`
-- Modify: `pretrain.py`
-- Modify: `finetune.py`
-- Modify: `evaluate.py`
-- Modify: `run_baseline.py`
-- Test: `tests/test_reproducibility.py`
-- Test: `tests/test_checkpoint_resume.py`
+**文件：**
+- 新建：`semg_fm/utils/__init__.py`
+- 新建：`semg_fm/utils/reproducibility.py`
+- 修改：`semg_fm/lightning/pretrain_module.py`
+- 修改：`pretrain.py`
+- 修改：`finetune.py`
+- 修改：`evaluate.py`
+- 修改：`run_baseline.py`
+- 测试：`tests/test_reproducibility.py`
+- 测试：`tests/test_checkpoint_resume.py`
 
-- [ ] **Step 1: Write failing digest and resume tests**
+- [ ] **步骤 1：编写失败的摘要与续训测试**
 
 ```python
 from semg_fm.utils.reproducibility import sha256_file, effective_global_batch
@@ -844,42 +844,42 @@ def test_manifest_digest_changes_when_contents_change(tmp_path):
     assert sha256_file(path) != first
 ```
 
-The resume test trains one step, saves a checkpoint, loads it, and asserts equality for `global_step`, teacher state, and scheduler state before training a second step.
+续训测试训练一步、保存 checkpoint、加载它，并在训练第二步之前断言 `global_step`、teacher 状态与调度器状态相等。
 
-- [ ] **Step 2: Verify reproducibility tests fail**
+- [ ] **步骤 2：确认可复现性测试失败**
 
-Run: `python -m pytest tests/test_reproducibility.py tests/test_checkpoint_resume.py -q`  
-Expected: FAIL with missing utilities or missing EMA/scheduler state.
+运行：`python -m pytest tests/test_reproducibility.py tests/test_checkpoint_resume.py -q`  
+预期：FAIL，缺少工具函数或缺少 EMA/调度器状态。
 
-- [ ] **Step 3: Implement run snapshots and exact resume**
+- [ ] **步骤 3：实现运行快照与精确续训**
 
-Write resolved Hydra YAML, Git commit, manifest and split digests, Python/PyTorch/Lightning versions, CUDA visibility, world size, precision, seed, and effective global batch to each output directory. Keep EMA teacher and scheduler under the Lightning checkpoint state. Pass `ckpt_path` directly to `Trainer.fit` so resumed training retains optimizer and global step.
+向每个输出目录写入解析后的 Hydra YAML、Git commit、manifest 与 split 摘要、Python/PyTorch/Lightning 版本、CUDA 可见性、world size、精度、随机种子与有效全局 batch。把 EMA teacher 与调度器置于 Lightning checkpoint 状态中。把 `ckpt_path` 直接传给 `Trainer.fit`，使续训保留优化器与全局步数。
 
-- [ ] **Step 4: Run reproducibility and resume tests**
+- [ ] **步骤 4：运行可复现性与续训测试**
 
-Run: `python -m pytest tests/test_reproducibility.py tests/test_checkpoint_resume.py -q`  
-Expected: PASS.
+运行：`python -m pytest tests/test_reproducibility.py tests/test_checkpoint_resume.py -q`  
+预期：PASS。
 
-- [ ] **Step 5: Commit reproducibility support**
+- [ ] **步骤 5：提交可复现性支持**
 
 ```powershell
 git add semg_fm/utils semg_fm/lightning/pretrain_module.py pretrain.py finetune.py evaluate.py run_baseline.py tests/test_reproducibility.py tests/test_checkpoint_resume.py
 git commit -m "feat: record and resume reproducible semg runs"
 ```
 
-### Task 16: User documentation and experiment protocol
+### 任务 16：用户文档与实验协议
 
-**Files:**
-- Modify: `README.md`
-- Create: `PRETRAINING.md`
-- Create: `DOWNSTREAM_EVALUATION.md`
-- Create: `BASELINES.md`
-- Create: `EXPERIMENT_PROTOCOL.md`
-- Create: `H5_DATA_CONTRACT.md`
-- Create: `SERVER_A100.md`
-- Test: `tests/test_documented_commands.py`
+**文件：**
+- 修改：`README.md`
+- 新建：`PRETRAINING.md`
+- 新建：`DOWNSTREAM_EVALUATION.md`
+- 新建：`BASELINES.md`
+- 新建：`EXPERIMENT_PROTOCOL.md`
+- 新建：`H5_DATA_CONTRACT.md`
+- 新建：`SERVER_A100.md`
+- 测试：`tests/test_documented_commands.py`
 
-- [ ] **Step 1: Write the failing documentation-command test**
+- [ ] **步骤 1：编写失败的文档命令测试**
 
 ```python
 from pathlib import Path
@@ -894,36 +894,36 @@ def test_public_documents_include_all_entry_points():
         assert command in text
 ```
 
-- [ ] **Step 2: Verify documentation tests fail**
+- [ ] **步骤 2：确认文档测试失败**
 
-Run: `python -m pytest tests/test_documented_commands.py -q`  
-Expected: FAIL because the documents do not exist.
+运行：`python -m pytest tests/test_documented_commands.py -q`  
+预期：FAIL，因为文档不存在。
 
-- [ ] **Step 3: Write operational documentation**
+- [ ] **步骤 3：撰写运维文档**
 
-`README.md` contains installation and a five-minute CPU smoke command. `PRETRAINING.md` explains shapes, masks, losses, and resume. `DOWNSTREAM_EVALUATION.md` specifies every label path, split rule, metric, and robustness command. `BASELINES.md` names each implementation as a core-mechanism reproduction and lists deviations. `EXPERIMENT_PROTOCOL.md` fixes main tables, ablations, seeds, label budgets, parameter reporting, and the no-language-model qwerty comparison. `H5_DATA_CONTRACT.md` mirrors the exact loader checks. `SERVER_A100.md` gives commands for 1, 2, 4, and 8 devices, Slurm-free launch, resume, NCCL diagnostics, and out-of-memory reduction while preserving effective batch size.
+`README.md` 包含安装说明与一条五分钟的 CPU smoke 命令。`PRETRAINING.md` 说明各形状、掩码、损失与续训。`DOWNSTREAM_EVALUATION.md` 规定每条标签路径、划分规则、指标与鲁棒性命令。`BASELINES.md` 把每种实现标注为核心机制复现，并列出与原文的偏差。`EXPERIMENT_PROTOCOL.md` 固定主表、消融、随机种子、标签预算、参数量报告方式，以及不借助语言模型的 qwerty 对比。`H5_DATA_CONTRACT.md` 与加载器的实际校验逐条对应。`SERVER_A100.md` 给出 1、2、4、8 卡的命令、免 Slurm 启动、续训、NCCL 诊断，以及在保持有效 batch size 前提下的显存不足应对方案。
 
-- [ ] **Step 4: Run documentation and Hydra composition tests**
+- [ ] **步骤 4：运行文档与 Hydra 组合测试**
 
-Run: `python -m pytest tests/test_documented_commands.py tests/test_hydra_config.py -q`  
-Expected: PASS.
+运行：`python -m pytest tests/test_documented_commands.py tests/test_hydra_config.py -q`  
+预期：PASS。
 
-- [ ] **Step 5: Commit documentation**
+- [ ] **步骤 5：提交文档**
 
 ```powershell
 git add README.md PRETRAINING.md DOWNSTREAM_EVALUATION.md BASELINES.md EXPERIMENT_PROTOCOL.md H5_DATA_CONTRACT.md SERVER_A100.md tests/test_documented_commands.py
 git commit -m "docs: document semg foundation model experiments"
 ```
 
-### Task 17: Full verification and acceptance audit
+### 任务 17：完整验证与验收审计
 
-**Files:**
-- Modify: `.gitignore`
-- Modify: `pytest.ini` if the existing temporary-directory setting is incompatible with the final suite
+**文件：**
+- 修改：`.gitignore`
+- 修改：`pytest.ini`（若现有临时目录设置与最终测试套件不兼容）
 
-- [ ] **Step 1: Verify converter independence before changing ignore rules**
+- [ ] **步骤 1：在修改 ignore 规则前验证转换器独立性**
 
-Run: `python -m pytest tests/test_standalone_scripts.py -q`. If the test file is unavailable in a later checkout, run these exact commands instead:
+运行：`python -m pytest tests/test_standalone_scripts.py -q`。如果该测试文件在后续检出中不可用，则改为运行以下精确命令：
 
 ```powershell
 python semg_h5/convert_emg2pose.py --help
@@ -933,14 +933,14 @@ python semg_h5/convert_gni_handwriting.py --help
 python semg_h5/convert_gni_wrist.py --help
 ```
 
-Expected: all standalone converter checks PASS without importing `semg_fm`.
+预期：所有独立转换器检查均 PASS，且不需要导入 `semg_fm`。
 
-- [ ] **Step 2: Run the complete test suite**
+- [ ] **步骤 2：运行完整测试套件**
 
-Run: `python -m pytest -q`  
-Expected: all tests PASS with no warnings promoted to errors.
+运行：`python -m pytest -q`  
+预期：所有测试 PASS，且没有把警告提升为错误。
 
-- [ ] **Step 3: Run public CPU smoke commands**
+- [ ] **步骤 3：运行公开 CPU smoke 命令**
 
 ```powershell
 python pretrain.py trainer=cpu_smoke data.root=tests/fixtures/canonical_meta
@@ -949,27 +949,27 @@ python finetune.py task=emg2pose trainer=cpu_smoke data.root=tests/fixtures/cano
 python evaluate.py task=emg2pose trainer=cpu_smoke data.root=tests/fixtures/canonical_meta
 ```
 
-Expected: every command exits with code 0 and writes a resolved config plus metrics in its Hydra output directory.
+预期：每条命令退出码为 0，并在其 Hydra 输出目录中写出解析后的配置与指标。
 
-- [ ] **Step 4: Audit repository state and generated artifacts**
+- [ ] **步骤 4：审计仓库状态与生成产物**
 
-Run: `git status --short`  
-Expected: only intended source, config, tests, and documentation changes appear. Dataset files, checkpoints, Hydra outputs, `.pytest_cache`, and Python bytecode are ignored. Existing untracked `emg_data/` and `meta_semg_16ch_datasets.md` remain untouched unless the user separately requests them.
+运行：`git status --short`  
+预期：只出现预期的源码、配置、测试与文档改动。数据集文件、checkpoint、Hydra 输出、`.pytest_cache` 与 Python 字节码均被忽略。已有的未跟踪 `emg_data/` 与 `meta_semg_16ch_datasets.md` 保持不变，除非用户另行要求处理。
 
-- [ ] **Step 5: Commit final integration fixes**
+- [ ] **步骤 5：提交最终集成修复**
 
 ```powershell
 git add .gitignore pytest.ini semg_fm configs tests pretrain.py finetune.py evaluate.py run_baseline.py make_splits.py requirements-train.txt README.md PRETRAINING.md DOWNSTREAM_EVALUATION.md BASELINES.md EXPERIMENT_PROTOCOL.md H5_DATA_CONTRACT.md SERVER_A100.md
 git commit -m "test: verify semg foundation model research stack"
 ```
 
-## Completion Evidence
+## 完成证据
 
-Before reporting completion, capture:
+在汇报完成之前，需采集：
 
-- the final `python -m pytest -q` summary;
-- the four pretraining smoke-test outcomes;
-- the five downstream smoke-test outcomes;
-- the Ring Criss-Cross equivariance tolerance result;
-- `git status --short` showing no unintended tracked changes;
-- a note that NCCL and multi-GPU behavior still require the documented A100 server smoke test if the current machine has no multi-GPU CUDA environment.
+- 最终的 `python -m pytest -q` 摘要；
+- 四项预训练 smoke 测试的结果；
+- 五项下游 smoke 测试的结果；
+- Ring Criss-Cross 等变性容差的结果；
+- `git status --short` 显示没有意外的已跟踪改动；
+- 一条说明：如果当前机器没有多卡 CUDA 环境，NCCL 与多卡行为仍需按文档执行 A100 服务器 smoke 测试。

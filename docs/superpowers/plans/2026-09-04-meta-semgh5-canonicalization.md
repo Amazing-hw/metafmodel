@@ -1,16 +1,16 @@
-# Meta sEMG Canonical H5 Conversion Implementation Plan
+# Meta sEMG Canonical H5 转换实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic workers：** 必需子技能（REQUIRED SUB-SKILL）：使用 `executing-plans` 逐任务实施本计划。步骤使用复选框语法（`- [ ]`）跟踪进度。
 
-**Goal:** Create five tested CLI converters that transform the Meta/CTRL-labs public sEMG HDF5 corpora into a single per-wrist canonical H5 schema plus a provenance manifest.
+**目标：** 创建五个经过测试的 CLI 转换器，把 Meta/CTRL-labs 公开 sEMG HDF5 语料转换为统一的 per-wrist canonical H5 schema，并附带一份溯源 manifest。
 
-**Architecture:** A shared `semg_h5.canonical` module owns schema validation and all canonical H5 writes. Source-specific readers only extract documented source arrays and labels into `CanonicalRecord` values. Each output file contains one `[T,16]` wrist stream; qwerty creates two linked outputs using `pair_id`. A CSV manifest mirrors selection/provenance fields so dataloaders can filter without opening every H5.
+**架构：** 共享模块 `semg_h5.canonical` 负责 schema 校验与所有 canonical H5 写入。各来源专用的 reader 只负责把已记录的源数组与标签抽取为 `CanonicalRecord`。每个输出文件包含一路 `[T,16]` 腕部信号；qwerty 借助 `pair_id` 产生两个相互关联的输出。CSV manifest 镜像选择/溯源字段，使 dataloader 无需打开每个 H5 即可完成过滤。
 
-**Tech Stack:** Python 3.10+, `h5py`, `numpy`, `pandas`, `pytest`; standard library `argparse`, `json`, `hashlib`, `csv`, `pathlib`.
+**技术栈：** Python 3.10+、`h5py`、`numpy`、`pandas`、`pytest`；标准库 `argparse`、`json`、`hashlib`、`csv`、`pathlib`。
 
 ---
 
-## File structure
+## 文件结构
 
 ```text
 semg_h5/
@@ -35,18 +35,18 @@ README.md
 requirements.txt
 ```
 
-`canonical.py` has the only code path allowed to create `/signal`, `/labels`, and `/meta` in a canonical file. `manifest.py` serializes a stable row per output H5. `source_readers.py` supplies input-layout functions used by the five short CLI modules. Tests construct minimal H5 fixtures that mimic the declared layouts, so no public dataset download is necessary to run the suite.
+`canonical.py` 是唯一获准在 canonical 文件中创建 `/signal`、`/labels` 和 `/meta` 的代码路径。`manifest.py` 为每个输出 H5 序列化出稳定的一行。`source_readers.py` 提供五个简短 CLI 模块所需的输入布局函数。测试构造模拟已声明布局的最小 H5 fixture，因此运行测试套件无需下载任何公开数据集。
 
-### Task 1: Package skeleton and schema contract tests
+### 任务 1：包骨架与 schema 契约测试
 
-**Files:**
-- Create: `requirements.txt`
-- Create: `semg_h5/__init__.py`
-- Create: `semg_h5/canonical.py`
-- Create: `tests/conftest.py`
-- Create: `tests/test_canonical.py`
+**文件：**
+- 新建：`requirements.txt`
+- 新建：`semg_h5/__init__.py`
+- 新建：`semg_h5/canonical.py`
+- 新建：`tests/conftest.py`
+- 新建：`tests/test_canonical.py`
 
-- [ ] **Step 1: Write the failing canonical-record test**
+- [ ] **步骤 1：编写失败的 canonical 记录测试**
 
 ```python
 # tests/test_canonical.py
@@ -73,13 +73,13 @@ def test_validate_record_rejects_a_non_16_channel_stream():
         validate_record(record)
 ```
 
-- [ ] **Step 2: Run the test to verify RED**
+- [ ] **步骤 2：运行测试，确认 RED**
 
-Run: `pytest tests/test_canonical.py -v`
+运行：`pytest tests/test_canonical.py -v`
 
-Expected: collection fails because `semg_h5.canonical` does not exist.
+预期：收集阶段失败，因为 `semg_h5.canonical` 不存在。
 
-- [ ] **Step 3: Create the minimal package and validation implementation**
+- [ ] **步骤 3：创建最小包与校验实现**
 
 ```python
 # semg_h5/canonical.py
@@ -130,26 +130,26 @@ pandas>=1.5
 pytest>=7.0
 ```
 
-- [ ] **Step 4: Run the canonical tests to verify GREEN**
+- [ ] **步骤 4：运行 canonical 测试，确认 GREEN**
 
-Run: `pytest tests/test_canonical.py -v`
+运行：`pytest tests/test_canonical.py -v`
 
-Expected: 2 passed.
+预期：2 passed。
 
-- [ ] **Step 5: Commit the first tested contract**
+- [ ] **步骤 5：提交第一个经过测试的契约**
 
 ```bash
 git add requirements.txt semg_h5/__init__.py semg_h5/canonical.py tests/test_canonical.py
 git commit -m "feat: define canonical sEMG record contract"
 ```
 
-### Task 2: Canonical H5 writer and reader validation
+### 任务 2：canonical H5 写入器与 reader 校验
 
-**Files:**
-- Modify: `semg_h5/canonical.py`
-- Modify: `tests/test_canonical.py`
+**文件：**
+- 修改：`semg_h5/canonical.py`
+- 修改：`tests/test_canonical.py`
 
-- [ ] **Step 1: Write the failing write/read round-trip test**
+- [ ] **步骤 1：编写失败的写入/读取往返测试**
 
 ```python
 def test_write_record_creates_required_groups_and_relative_clock(tmp_path):
@@ -166,15 +166,15 @@ def test_write_record_creates_required_groups_and_relative_clock(tmp_path):
     assert np.allclose(header["time_s"], [0.0, 0.0005, 0.001, 0.0015])
 ```
 
-- [ ] **Step 2: Run the test to verify RED**
+- [ ] **步骤 2：运行测试，确认 RED**
 
-Run: `pytest tests/test_canonical.py::test_write_record_creates_required_groups_and_relative_clock -v`
+运行：`pytest tests/test_canonical.py::test_write_record_creates_required_groups_and_relative_clock -v`
 
-Expected: FAIL because `write_record` and `read_canonical_header` are not defined.
+预期：FAIL，因为 `write_record` 和 `read_canonical_header` 尚未定义。
 
-- [ ] **Step 3: Implement the writer without physiological transformations**
+- [ ] **步骤 3：实现不带任何生理变换的写入器**
 
-Implement `write_record(path, record, overwrite=False)` with these exact behaviors:
+实现 `write_record(path, record, overwrite=False)`，行为严格如下：
 
 ```python
 with h5py.File(path, "w") as h5:
@@ -196,30 +196,30 @@ with h5py.File(path, "w") as h5:
     signal.create_dataset("time_s", data=record.time_s.astype(np.float64) - record.time_s[0])
 ```
 
-Write `source_json` as a UTF-8 scalar dataset, write `/meta/quality/sample_count`, `/meta/quality/duration_s`, `/meta/quality/nan_count`, and `/meta/quality/channel_rms`, then call a label-writer dispatch function. Reject existing paths unless `overwrite=True`.
+把 `source_json` 写为 UTF-8 标量 dataset，写入 `/meta/quality/sample_count`、`/meta/quality/duration_s`、`/meta/quality/nan_count` 和 `/meta/quality/channel_rms`，然后调用标签写入的分发函数。除 `overwrite=True` 外，拒绝已存在的路径。
 
-- [ ] **Step 4: Run the writer tests to verify GREEN**
+- [ ] **步骤 4：运行写入器测试，确认 GREEN**
 
-Run: `pytest tests/test_canonical.py -v`
+运行：`pytest tests/test_canonical.py -v`
 
-Expected: 3 passed.
+预期：3 passed。
 
-- [ ] **Step 5: Commit the H5 writer**
+- [ ] **步骤 5：提交 H5 写入器**
 
 ```bash
 git add semg_h5/canonical.py tests/test_canonical.py
 git commit -m "feat: write validated canonical sEMG H5 records"
 ```
 
-### Task 3: Label serialization, manifest, and tree validator
+### 任务 3：标签序列化、manifest 与目录树校验器
 
-**Files:**
-- Create: `semg_h5/manifest.py`
-- Create: `semg_h5/validate.py`
-- Create: `tests/test_manifest.py`
-- Modify: `semg_h5/canonical.py`
+**文件：**
+- 新建：`semg_h5/manifest.py`
+- 新建：`semg_h5/validate.py`
+- 新建：`tests/test_manifest.py`
+- 修改：`semg_h5/canonical.py`
 
-- [ ] **Step 1: Write failing manifest and task-label tests**
+- [ ] **步骤 1：编写失败的 manifest 与任务标签测试**
 
 ```python
 def test_manifest_row_exposes_task_selection_and_pairing(tmp_path):
@@ -245,15 +245,15 @@ def test_typing_labels_round_trip_as_structured_tables(tmp_path):
         assert h5["labels/prompts"][0]["text"].decode() == "a"
 ```
 
-- [ ] **Step 2: Run the tests to verify RED**
+- [ ] **步骤 2：运行测试，确认 RED**
 
-Run: `pytest tests/test_manifest.py tests/test_canonical.py::test_typing_labels_round_trip_as_structured_tables -v`
+运行：`pytest tests/test_manifest.py tests/test_canonical.py::test_typing_labels_round_trip_as_structured_tables -v`
 
-Expected: FAIL because manifest and label serialization do not exist.
+预期：FAIL，因为 manifest 与标签序列化尚不存在。
 
-- [ ] **Step 3: Implement stable manifest and label writers**
+- [ ] **步骤 3：实现稳定的 manifest 与标签写入器**
 
-Implement `append_manifest_row` by reading existing CSV, replacing an existing row with the same `path`, sorting by `path`, and writing atomically via `manifest.csv.tmp`. Fix the manifest field order to:
+实现 `append_manifest_row`：读取已有 CSV，替换 `path` 相同的既有行，按 `path` 排序，并通过 `manifest.csv.tmp` 原子写入。manifest 字段顺序固定为：
 
 ```python
 MANIFEST_COLUMNS = ["path", "dataset_id", "task_id", "subject_id", "session_id", "side",
@@ -261,39 +261,39 @@ MANIFEST_COLUMNS = ["path", "dataset_id", "task_id", "subject_id", "session_id",
                     "source_file", "source_sha256"]
 ```
 
-Implement H5 label table datasets with UTF-8 variable-length strings and named numeric fields. Support exactly these label mappings:
+用 UTF-8 变长字符串与具名数值字段实现 H5 标签表 dataset。仅支持以下标签映射：
 
 ```text
 typing:             keystrokes(key, press_s, release_s), prompts(text, start_s, end_s)
-discrete_gesture:   events(name, time_s), stage(optional UTF-8 scalar)
+discrete_gesture:   events(name, time_s), stage(可选 UTF-8 标量)
 handwriting:        prompts(text, start_s, end_s)
-pose:               joint_angles, no_ik_failure(optional), stage(optional UTF-8 scalar)
-wrist_angle:        target arrays under labels/targets/<source field>, stage(optional UTF-8 scalar)
+pose:               joint_angles, no_ik_failure(可选), stage(可选 UTF-8 标量)
+wrist_angle:        labels/targets/<源字段> 下的目标数组, stage(可选 UTF-8 标量)
 ```
 
-Implement `python -m semg_h5.validate --input PATH` to recursively validate all `*.h5`, check the manifest paths, and exit non-zero with every invalid path listed.
+实现 `python -m semg_h5.validate --input PATH`：递归校验所有 `*.h5`，检查 manifest 中的路径，并在退出码非零时列出全部无效路径。
 
-- [ ] **Step 4: Run tests to verify GREEN**
+- [ ] **步骤 4：运行测试，确认 GREEN**
 
-Run: `pytest tests/test_manifest.py tests/test_canonical.py -v`
+运行：`pytest tests/test_manifest.py tests/test_canonical.py -v`
 
-Expected: all tests pass.
+预期：所有测试通过。
 
-- [ ] **Step 5: Commit manifest and label support**
+- [ ] **步骤 5：提交 manifest 与标签支持**
 
 ```bash
 git add semg_h5 tests/test_manifest.py tests/test_canonical.py
 git commit -m "feat: add task labels manifest and canonical validator"
 ```
 
-### Task 4: emg2pose source reader and converter
+### 任务 4：emg2pose source reader 与转换器
 
-**Files:**
-- Create: `semg_h5/source_readers.py`
-- Create: `semg_h5/convert_emg2pose.py`
-- Create: `tests/test_convert_emg2pose.py`
+**文件：**
+- 新建：`semg_h5/source_readers.py`
+- 新建：`semg_h5/convert_emg2pose.py`
+- 新建：`tests/test_convert_emg2pose.py`
 
-- [ ] **Step 1: Write the failing emg2pose conversion test**
+- [ ] **步骤 1：编写失败的 emg2pose 转换测试**
 
 ```python
 def test_convert_emg2pose_preserves_pose_labels_and_source_split(tmp_path, emg2pose_h5):
@@ -308,37 +308,37 @@ def test_convert_emg2pose_preserves_pose_labels_and_source_split(tmp_path, emg2p
         assert h5["labels/no_ik_failure"].shape == (4,)
 ```
 
-- [ ] **Step 2: Run the test to verify RED**
+- [ ] **步骤 2：运行测试，确认 RED**
 
-Run: `pytest tests/test_convert_emg2pose.py -v`
+运行：`pytest tests/test_convert_emg2pose.py -v`
 
-Expected: FAIL because the module does not exist.
+预期：FAIL，因为该模块不存在。
 
-- [ ] **Step 3: Implement documented emg2pose extraction**
+- [ ] **步骤 3：实现已记录的 emg2pose 抽取逻辑**
 
-Read group `emg2pose/timeseries` as a compound dataset with fields `emg`, `joint_angles`, and `time`. Read metadata from the source group/attributes if present, otherwise derive namespaced IDs from the source relative path. For each source H5, produce exactly one canonical record. Preserve optional source `no_ik_failure` and `stage`; set `side` from source metadata when available. The CLI must enumerate input `*.h5`, join official split from a supplied metadata CSV when present, write each record, append one manifest row, and support `--split` filtering.
+把 group `emg2pose/timeseries` 读作含 `emg`、`joint_angles` 和 `time` 字段的复合 dataset。若源 group/属性中存在元数据则读取，否则从源相对路径派生带命名空间的 ID。每个源 H5 恰好产出一条 canonical 记录。保留可选的源字段 `no_ik_failure` 与 `stage`；能取到源元数据时据此设置 `side`。CLI 必须枚举输入 `*.h5`，在提供元数据 CSV 时关联出 official split，写入每条记录，追加一行 manifest，并支持 `--split` 过滤。
 
-- [ ] **Step 4: Run emg2pose tests to verify GREEN**
+- [ ] **步骤 4：运行 emg2pose 测试，确认 GREEN**
 
-Run: `pytest tests/test_convert_emg2pose.py -v`
+运行：`pytest tests/test_convert_emg2pose.py -v`
 
-Expected: 1 passed.
+预期：1 passed。
 
-- [ ] **Step 5: Commit the emg2pose converter**
+- [ ] **步骤 5：提交 emg2pose 转换器**
 
 ```bash
 git add semg_h5/source_readers.py semg_h5/convert_emg2pose.py tests/test_convert_emg2pose.py
 git commit -m "feat: convert emg2pose into canonical H5"
 ```
 
-### Task 5: emg2qwerty bilateral converter
+### 任务 5：emg2qwerty 双侧转换器
 
-**Files:**
-- Create: `semg_h5/convert_emg2qwerty.py`
-- Create: `tests/test_convert_emg2qwerty.py`
-- Modify: `semg_h5/source_readers.py`
+**文件：**
+- 新建：`semg_h5/convert_emg2qwerty.py`
+- 新建：`tests/test_convert_emg2qwerty.py`
+- 修改：`semg_h5/source_readers.py`
 
-- [ ] **Step 1: Write the failing bilateral-pair test**
+- [ ] **步骤 1：编写失败的双侧配对测试**
 
 ```python
 def test_convert_qwerty_emits_one_linked_record_per_wrist(tmp_path, qwerty_h5):
@@ -353,39 +353,39 @@ def test_convert_qwerty_emits_one_linked_record_per_wrist(tmp_path, qwerty_h5):
             assert h5["labels/keystrokes"].shape[0] == 1
 ```
 
-- [ ] **Step 2: Run the test to verify RED**
+- [ ] **步骤 2：运行测试，确认 RED**
 
-Run: `pytest tests/test_convert_emg2qwerty.py -v`
+运行：`pytest tests/test_convert_emg2qwerty.py -v`
 
-Expected: FAIL because the qwerty module does not exist.
+预期：FAIL，因为 qwerty 模块不存在。
 
-- [ ] **Step 3: Implement documented qwerty extraction**
+- [ ] **步骤 3：实现已记录的 qwerty 抽取逻辑**
 
-Read `emg2qwerty/timeseries` compound fields `emg_left`, `emg_right`, and `time`. Read keylogger and prompt metadata from the source group metadata JSON/attributes. Convert keylogger absolute timestamps and prompt times to the same record-relative reference as `time_s`. Validate that both sides have `[T,16]`, identical lengths, and aligned time vectors before writing outputs. Give both records the deterministic identifier `emg2qwerty:<source-session>` and `pair_id` `emg2qwerty:<source-session>`. Write labels into both output files so either paired typing record is self-describing.
+读取 `emg2qwerty/timeseries` 的复合字段 `emg_left`、`emg_right` 和 `time`。从源 group 的元数据 JSON/属性中读取 keylogger 与 prompt 元数据。把 keylogger 的绝对时间戳和 prompt 时间转换到与 `time_s` 相同的记录相对时基。写输出前校验两侧均为 `[T,16]`、长度一致且时间向量对齐。给两条记录相同的确定性标识 `emg2qwerty:<source-session>` 与 `pair_id` `emg2qwerty:<source-session>`。把标签写进两个输出文件，使任一配对的打字记录都能自描述。
 
-- [ ] **Step 4: Run qwerty tests to verify GREEN**
+- [ ] **步骤 4：运行 qwerty 测试，确认 GREEN**
 
-Run: `pytest tests/test_convert_emg2qwerty.py -v`
+运行：`pytest tests/test_convert_emg2qwerty.py -v`
 
-Expected: 1 passed.
+预期：1 passed。
 
-- [ ] **Step 5: Commit the qwerty converter**
+- [ ] **步骤 5：提交 qwerty 转换器**
 
 ```bash
 git add semg_h5/convert_emg2qwerty.py semg_h5/source_readers.py tests/test_convert_emg2qwerty.py
 git commit -m "feat: convert bilateral emg2qwerty sessions"
 ```
 
-### Task 6: Generic-neuromotor-interface source reader and three task CLIs
+### 任务 6：generic-neuromotor-interface source reader 与三个任务 CLI
 
-**Files:**
-- Create: `semg_h5/convert_gni_discrete_gestures.py`
-- Create: `semg_h5/convert_gni_handwriting.py`
-- Create: `semg_h5/convert_gni_wrist.py`
-- Create: `tests/test_convert_gni.py`
-- Modify: `semg_h5/source_readers.py`
+**文件：**
+- 新建：`semg_h5/convert_gni_discrete_gestures.py`
+- 新建：`semg_h5/convert_gni_handwriting.py`
+- 新建：`semg_h5/convert_gni_wrist.py`
+- 新建：`tests/test_convert_gni.py`
+- 修改：`semg_h5/source_readers.py`
 
-- [ ] **Step 1: Write failing parametrized tests for each GNI task**
+- [ ] **步骤 1：为每个 GNI 任务编写参数化的失败测试**
 
 ```python
 @pytest.mark.parametrize(
@@ -407,49 +407,49 @@ def test_convert_gni_task_preserves_16ch_stream_and_its_labels(
         assert label_path in h5
 ```
 
-- [ ] **Step 2: Run the test to verify RED**
+- [ ] **步骤 2：运行测试，确认 RED**
 
-Run: `pytest tests/test_convert_gni.py -v`
+运行：`pytest tests/test_convert_gni.py -v`
 
-Expected: FAIL because no GNI converter modules exist.
+预期：FAIL，因为尚无 GNI 转换器模块。
 
-- [ ] **Step 3: Implement the shared GNI reader**
+- [ ] **步骤 3：实现共享的 GNI reader**
 
-Read source `data` as a compound dataset and extract `time` and its one 16-channel EMG field. Read task name from `data.attrs["task"]`. Read a `prompts` pandas HDF table when present and a `stages` table when present. Dispatch labels as follows:
+把源 `data` 读作复合 dataset，抽取 `time` 及其唯一的 16 通道 EMG 字段。从 `data.attrs["task"]` 读取任务名。若存在 `prompts` pandas HDF 表则读取，`stages` 表同理。标签分发如下：
 
 ```text
-discrete_gestures: prompts columns name/time -> labels/events(name, time_s)
-handwriting:       prompts columns prompt/start/end -> labels/prompts(text, start_s, end_s)
-wrist:             every numeric data field other than time/emg -> labels/targets/<field>
+discrete_gestures: prompts 的 name/time 列 -> labels/events(name, time_s)
+handwriting:       prompts 的 prompt/start/end 列 -> labels/prompts(text, start_s, end_s)
+wrist:             除 time/emg 外的所有数值数据字段 -> labels/targets/<field>
 ```
 
-For the wrist fixture and output contract, normalize the source field name `flexion_extension` to `flexion_extension`; preserve all other source numeric target fields under their safe ASCII field name. Require target arrays to have length `T`. Add `stage` as a UTF-8 scalar when a single matching stage is available, otherwise preserve complete source stage rows in `source_json`.
+对于 wrist fixture 与输出契约，把源字段名 `flexion_extension` 规范化为 `flexion_extension`；其余源数值目标字段一律在其安全的 ASCII 字段名下保留。要求目标数组长度均为 `T`。当存在唯一匹配的 stage 时，把 `stage` 写为 UTF-8 标量，否则把完整的源 stage 行保留在 `source_json` 中。
 
-- [ ] **Step 4: Implement three thin CLIs**
+- [ ] **步骤 4：实现三个薄 CLI**
 
-Each module must call a shared `run_gni_conversion(task_name, input_root, output_root, split, overwrite)` with its fixed task string. The generic runner must reject a source H5 whose `data.attrs["task"]` differs from the invoked task. Write `dataset_id` values `gni_discrete_gestures`, `gni_handwriting`, and `gni_wrist`; write sides as `dominant` unless an explicit source side exists.
+每个模块都必须以自己固定的任务字符串调用共享的 `run_gni_conversion(task_name, input_root, output_root, split, overwrite)`。通用 runner 必须拒绝 `data.attrs["task"]` 与被调用任务不一致的源 H5。`dataset_id` 分别写为 `gni_discrete_gestures`、`gni_handwriting` 和 `gni_wrist`；除源数据中存在明确的 side 外，side 一律写 `dominant`。
 
-- [ ] **Step 5: Run GNI tests to verify GREEN**
+- [ ] **步骤 5：运行 GNI 测试，确认 GREEN**
 
-Run: `pytest tests/test_convert_gni.py -v`
+运行：`pytest tests/test_convert_gni.py -v`
 
-Expected: 3 passed.
+预期：3 passed。
 
-- [ ] **Step 6: Commit all three GNI converters**
+- [ ] **步骤 6：提交全部三个 GNI 转换器**
 
 ```bash
 git add semg_h5/convert_gni_discrete_gestures.py semg_h5/convert_gni_handwriting.py semg_h5/convert_gni_wrist.py semg_h5/source_readers.py tests/test_convert_gni.py
 git commit -m "feat: convert generic neuromotor interface tasks"
 ```
 
-### Task 7: CLI integration tests and user documentation
+### 任务 7：CLI 集成测试与用户文档
 
-**Files:**
-- Modify: `tests/test_canonical.py`
-- Create: `tests/test_cli_integration.py`
-- Create: `README.md`
+**文件：**
+- 修改：`tests/test_canonical.py`
+- 新建：`tests/test_cli_integration.py`
+- 新建：`README.md`
 
-- [ ] **Step 1: Write a failing end-to-end CLI test**
+- [ ] **步骤 1：编写失败的端到端 CLI 测试**
 
 ```python
 def test_converter_cli_writes_a_valid_tree_and_manifest(tmp_path, qwerty_h5):
@@ -466,15 +466,15 @@ def test_converter_cli_writes_a_valid_tree_and_manifest(tmp_path, qwerty_h5):
     assert len(pd.read_csv(tmp_path / "out" / "manifest.csv")) == 2
 ```
 
-- [ ] **Step 2: Run the test to verify RED**
+- [ ] **步骤 2：运行测试，确认 RED**
 
-Run: `pytest tests/test_cli_integration.py -v`
+运行：`pytest tests/test_cli_integration.py -v`
 
-Expected: FAIL until all converters expose their CLI parser and write a manifest.
+预期：FAIL，直到所有转换器都暴露各自的 CLI parser 并写出 manifest。
 
-- [ ] **Step 3: Implement consistent argparse entrypoints and README**
+- [ ] **步骤 3：实现统一的 argparse 入口与 README**
 
-Document these exact commands:
+在文档中记录以下确切命令：
 
 ```bash
 python -m semg_h5.convert_emg2pose --input-root RAW_EMG2POSE --output-root CANONICAL_META
@@ -485,35 +485,35 @@ python -m semg_h5.convert_gni_wrist --input-root RAW_GNI_WRIST --output-root CAN
 python -m semg_h5.validate --input CANONICAL_META
 ```
 
-README must include canonical tree layout, manifest columns, the qwerty `pair_id` reconstruction example, no-refilter/no-rescale policy, `--split`, and `--overwrite` semantics.
+README 必须包含 canonical 目录树布局、manifest 列、qwerty 的 `pair_id` 重建示例、不重新滤波/不重新缩放（no-refilter/no-rescale）策略，以及 `--split` 和 `--overwrite` 的语义。
 
-- [ ] **Step 4: Run integration and full test suites to verify GREEN**
+- [ ] **步骤 4：运行集成测试与完整测试套件，确认 GREEN**
 
-Run: `pytest -q`
+运行：`pytest -q`
 
-Expected: all tests pass with no failures.
+预期：所有测试通过，无失败项。
 
-- [ ] **Step 5: Commit documentation and integration coverage**
+- [ ] **步骤 5：提交文档与集成测试覆盖**
 
 ```bash
 git add README.md tests/test_cli_integration.py
 git commit -m "docs: document canonical Meta sEMG conversion workflow"
 ```
 
-### Task 8: Final verification and acceptance audit
+### 任务 8：最终校验与验收审计
 
-**Files:**
-- Verify: all files created above
+**文件：**
+- 校验：上述所有新建文件
 
-- [ ] **Step 1: Run fresh full verification**
+- [ ] **步骤 1：重新运行一次完整校验**
 
-Run: `pytest -q`
+运行：`pytest -q`
 
-Expected: exit code 0 and all tests passed.
+预期：退出码 0 且所有测试通过。
 
-- [ ] **Step 2: Inspect converter command help**
+- [ ] **步骤 2：检查各转换器命令的帮助信息**
 
-Run:
+运行：
 
 ```bash
 python -m semg_h5.convert_emg2pose --help
@@ -524,32 +524,32 @@ python -m semg_h5.convert_gni_wrist --help
 python -m semg_h5.validate --help
 ```
 
-Expected: every command exits 0 and exposes `--input-root`, `--output-root`, `--split`, and `--overwrite` where applicable.
+预期：每条命令都退出码 0，并在适用时暴露 `--input-root`、`--output-root`、`--split` 和 `--overwrite`。
 
-- [ ] **Step 3: Audit acceptance criteria**
+- [ ] **步骤 3：审计验收标准**
 
-Verify against the approved design:
+对照已批准的设计逐项核验：
 
 ```text
-[ ] all five converter modules exist
-[ ] all emitted records have /signal/emg [T,16] and /signal/time_s [T]
-[ ] qwerty emits paired left/right rows
-[ ] every task preserves its required labels
-[ ] manifest contains task, split, IDs, side, pair_id and provenance hash
-[ ] validator catches malformed canonical H5 and manifest inconsistency
-[ ] full pytest suite passes
+[ ] 五个转换器模块全部存在
+[ ] 所有输出的记录都含有 /signal/emg [T,16] 与 /signal/time_s [T]
+[ ] qwerty 输出成对的 left/right 行
+[ ] 每个任务都保留了各自必需的标签
+[ ] manifest 含有 task、split、各类 ID、side、pair_id 和溯源哈希
+[ ] 校验器能捕获格式错误的 canonical H5 与 manifest 不一致
+[ ] 完整 pytest 测试套件通过
 ```
 
-- [ ] **Step 4: Commit any final audit-only documentation change, if needed**
+- [ ] **步骤 4：如有需要，提交仅涉及审计的最终文档改动**
 
 ```bash
 git status --short
 ```
 
-Expected: only intentionally untracked research artifacts remain; no generated test H5 files or output manifests are tracked.
+预期：只剩有意未纳入版本控制的研究产物；没有任何生成的测试 H5 文件或输出 manifest 被跟踪。
 
-## Plan self-review
+## 计划自检
 
-- Spec coverage: Tasks 1–3 implement the shared contract, labels, manifest and validator; Tasks 4–6 cover every approved source dataset; Task 7 documents and exercises the public interfaces; Task 8 maps directly to every acceptance criterion.
-- Placeholder scan: no incomplete or deferred behavior remains.
-- Type consistency: every converter produces `CanonicalRecord`; all canonical writes go through `write_record`; manifest rows use the fixed `MANIFEST_COLUMNS` list.
+- 规格覆盖：任务 1–3 落实共享契约、标签、manifest 与校验器；任务 4–6 覆盖每个已批准的源数据集；任务 7 记录并实际演练公开接口；任务 8 与每一条验收标准一一对应。
+- 占位符扫描：没有遗留不完整或延后实现的行为。
+- 类型一致性：每个转换器都产出 `CanonicalRecord`；所有 canonical 写入都经由 `write_record`；manifest 行使用固定的 `MANIFEST_COLUMNS` 列表。

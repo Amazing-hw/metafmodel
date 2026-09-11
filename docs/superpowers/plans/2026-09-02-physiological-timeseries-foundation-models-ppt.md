@@ -1,51 +1,51 @@
-# Physiological Time-Series Foundation Models PPT Implementation Plan
+# 生理时序基座模型 PPT 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic workers：** 必需子技能（REQUIRED SUB-SKILL）：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实施本计划。步骤使用复选框语法（`- [ ]`）跟踪进度。
 
-**Goal:** Produce a visually verified Chinese PPTX that deeply reviews 17 influential physiological/time-series foundation-model works and turns their lessons into a concrete forearm/wrist sEMG motor-interaction research programme.
+**目标：** 产出一份经过视觉校验的中文 PPTX，深度解读 17 项有影响力的生理/时序基座模型工作，并把其中的经验转化为一条具体的前臂/腕部 sEMG 运动交互研究方案。
 
-**Architecture:** A source manifest keeps every factual claim traceable to an official proceedings, publisher, or arXiv page. A single JavaScript generator uses `@oai/artifact-tool` to turn structured paper records into a 16:9 deck with three slides and at least 500 Chinese explanation characters in notes per work. A rendering-and-lint stage checks every exported slide for readability and layout defects before delivery.
+**架构：** 用一份来源 manifest 让每一条事实性论断都能追溯到官方会议、出版社或 arXiv 页面。单个 JavaScript 生成器借助 `@oai/artifact-tool`，把结构化的论文记录转成 16:9 演示文稿：每项工作三页幻灯片，备注中至少包含 500 个中文字符的讲解。交付前由渲染与 lint 环节逐页检查导出的幻灯片，确认可读性并排查版式缺陷。
 
-**Tech Stack:** JavaScript ES modules, `@oai/artifact-tool`, bundled Node.js runtime, PowerPoint/PPTX, Poppler-based slide rendering, Python slide checks.
+**技术栈：** JavaScript ES modules、`@oai/artifact-tool`、内置 Node.js 运行时、PowerPoint/PPTX、基于 Poppler 的幻灯片渲染、Python 幻灯片检查。
 
 ---
 
-### Task 1: Build the verified source manifest
+### 任务 1：构建经过核验的来源 manifest
 
-**Files:**
-- Create: `C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\sources.md`
-- Create: `C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\source-notes.txt`
+**文件：**
+- 新建：`C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\sources.md`
+- 新建：`C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\source-notes.txt`
 
-- [ ] **Step 1: Create one record for each of the 17 selected papers**
+- [ ] **步骤 1：为 17 篇选定论文各建一条记录**
 
-Use the fixed corpus in `C:\Users\User\Documents\F_model\docs\superpowers\specs\2026-09-02-physiological-timeseries-foundation-models-ppt-design.md`. For each record, include title, venue/year, modality, data scale, tokenizer/representation, backbone, objective, evaluation, takeaway, and an official source URL. Mark `Biosignal Fingerprinting / M2AE` as a preprint.
+使用 `C:\Users\User\Documents\F_model\docs\superpowers\specs\2026-09-02-physiological-timeseries-foundation-models-ppt-design.md` 中的固定论文池。每条记录需包含标题、会议/年份、模态、数据规模、tokenizer/表示、backbone、目标函数、评测、可借鉴点，以及一个官方来源 URL。把 `Biosignal Fingerprinting / M2AE` 标注为预印本。
 
-- [ ] **Step 2: Record all source URLs in the delivery provenance file**
+- [ ] **步骤 2：把所有来源 URL 记录到交付溯源文件中**
 
-Use this exact format for every source, so it can be inserted into PowerPoint notes:
+每个来源都使用下面这一确切格式，以便插入 PowerPoint 备注：
 
 ```text
 LaBraM | ICLR 2024 | https://proceedings.iclr.cc/paper_files/paper/2024/hash/47393e8594c82ce8fd83adc672cf9872-Abstract-Conference.html
 ```
 
-- [ ] **Step 3: Verify that the corpus has 17 unique works and all URLs are primary sources**
+- [ ] **步骤 3：核验论文池确有 17 项互不重复的工作，且所有 URL 均为一手来源**
 
-Run:
+运行：
 
 ```powershell
 (Select-String -Path 'C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\sources.md' -Pattern '^## ').Count
 ```
 
-Expected: `17`.
+预期：`17`。
 
-### Task 2: Author structured review content and speaker-note copy
+### 任务 2：撰写结构化解读内容与讲者备注文案
 
-**Files:**
-- Create: `C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\paper_records.js`
+**文件：**
+- 新建：`C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\paper_records.js`
 
-- [ ] **Step 1: Define the paper-record schema**
+- [ ] **步骤 1：定义论文记录 schema**
 
-Use exactly this shape for every work:
+每项工作都严格使用下面这一结构：
 
 ```js
 {
@@ -63,13 +63,13 @@ Use exactly this shape for every work:
 }
 ```
 
-- [ ] **Step 2: Write exactly three slide payloads per paper**
+- [ ] **步骤 2：每篇论文恰好写三组幻灯片内容**
 
-For each record, make the payloads answer: (a) why the work exists and what representation gap it addresses; (b) input, patch/tokenizer/codebook if any, backbone, self-supervised loss, adaptation path; (c) empirical evidence, limitation, `可借鉴` and `不应照搬` implications for forearm/wrist sEMG movement interaction.
+每条记录的内容需回答：(a) 该工作为何存在、它填补了哪一表示空白；(b) 输入、patch/tokenizer/codebook（如有）、backbone、自监督损失、适配路径；(c) 实证证据、局限，以及对手前臂/腕部 sEMG 运动交互而言的 `可借鉴` 与 `不应照搬` 之处。
 
-- [ ] **Step 3: Write speaker notes in Chinese and attach sources**
+- [ ] **步骤 3：用中文撰写讲者备注并附上来源**
 
-Concatenate the three notes for each paper. Their text excluding the source block must contain at least 500 Chinese characters. End each note with:
+把每篇论文的三段备注拼接起来。去掉来源块后的文本至少要有 500 个中文字符。每段备注以如下内容结尾：
 
 ```text
 [Sources]
@@ -77,96 +77,96 @@ Concatenate the three notes for each paper. Their text excluding the source bloc
 [/Sources]
 ```
 
-- [ ] **Step 4: Add end-section comparison records**
+- [ ] **步骤 4：补充结尾对比章节的记录**
 
-Add data, tokenization, objective, evaluation, design recommendation, and submission-roadmap records. The recommendation must prioritize continuous multi-scale temporal encoding, masked reconstruction, EMG-to-future-kinematics/IMU prediction, selective contrastive consistency, and a stage-two VQ-codebook ablation.
+添加数据、tokenization、目标函数、评测、设计建议与投稿路线图这几类记录。设计建议须优先考虑连续多尺度时间编码、掩码重建、EMG 到未来运动学/IMU 的预测、选择性对比一致性，以及第二阶段的 VQ codebook 消融。
 
-### Task 3: Generate the PowerPoint deck
+### 任务 3：生成 PowerPoint 演示文稿
 
-**Files:**
-- Create: `C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\build_deck.mjs`
-- Create: `C:\Users\User\Documents\F_model\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx`
+**文件：**
+- 新建：`C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\build_deck.mjs`
+- 新建：`C:\Users\User\Documents\F_model\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx`
 
-- [ ] **Step 1: Load the bundled artifact runtime and start the artifact operation**
+- [ ] **步骤 1：加载内置 artifact 运行时并启动 artifact 操作**
 
-Run the mandated operation marker once before the first creation command:
+在第一条创建命令之前，先运行一次规定的操作标记：
 
 ```powershell
 & $skillDir\container_tools\mark_artifact_operation_started.mjs --operation-kind create --expected-output-count 1 --output-format pptx
 ```
 
-Set `RUNTIME_NODE`, `RUNTIME_NODE_MODULES`, and `RUNTIME_BIN_DIR` from `load_workspace_dependencies`; create a `node_modules` junction in `deliverables\physio_fm_ppt` pointing at `RUNTIME_NODE_MODULES`.
+用 `load_workspace_dependencies` 设置 `RUNTIME_NODE`、`RUNTIME_NODE_MODULES` 和 `RUNTIME_BIN_DIR`；在 `deliverables\physio_fm_ppt` 下创建一个 `node_modules` junction，指向 `RUNTIME_NODE_MODULES`。
 
-- [ ] **Step 2: Implement a reusable 16:9 slide system**
+- [ ] **步骤 2：实现一套可复用的 16:9 幻灯片系统**
 
-In `build_deck.mjs`, implement `addChrome(slide, section, page)`, `addPaperSlide(slide, record, kind)`, `addNotes(slide, text, urls)`, and `addPipeline(slide, nodes)`. Use a dark navy background, muted teal as the primary accent, and warm orange solely for the project-relevance callouts. Set slide titles at 36 pt or larger and body text at 16 pt or larger. Include page number and section label on every slide.
+在 `build_deck.mjs` 中实现 `addChrome(slide, section, page)`、`addPaperSlide(slide, record, kind)`、`addNotes(slide, text, urls)` 和 `addPipeline(slide, nodes)`。使用深海军蓝背景，以低饱和青色作为主强调色，暖橙色仅用于标注项目相关性的提示框。幻灯片标题字号设为 36 pt 及以上，正文 16 pt 及以上。每一页都带页码和章节标签。
 
-- [ ] **Step 3: Generate all required slides in this order**
+- [ ] **步骤 3：按以下顺序生成全部所需幻灯片**
 
-Create 5 landscape slides, 51 paper slides (3 × 17), and 6–10 synthesis slides. Use clear section-divider slides between EEG/heterogeneous signals, wearable/general time series, wrist sEMG/motor interaction, and the project proposal. Preserve one logical claim per slide and use compact native PowerPoint process diagrams rather than copied paper figures.
+生成 5 页横版引导页、51 页论文页（3 × 17）和 6–10 页综述页。在 EEG/异构信号、可穿戴/通用时序、腕部 sEMG/运动交互和项目方案之间，插入清晰的章节分隔页。每页只保留一条逻辑主张，并使用紧凑的 PowerPoint 原生流程图，而不是复制论文插图。
 
-- [ ] **Step 4: Export and save the deck**
+- [ ] **步骤 4：导出并保存演示文稿**
 
-Run:
+运行：
 
 ```powershell
 & $env:RUNTIME_NODE 'C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\build_deck.mjs'
 ```
 
-Expected: a PPTX with 60–66 slides at `C:\Users\User\Documents\F_model\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx`.
+预期：在 `C:\Users\User\Documents\F_model\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx` 生成 60–66 页的 PPTX。
 
-### Task 4: Render, inspect, and correct the deck
+### 任务 4：渲染、检查并修正演示文稿
 
-**Files:**
-- Create: `C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\rendered\`
-- Create: `C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\slides_test_report.txt`
+**文件：**
+- 新建：`C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\rendered\`
+- 新建：`C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\slides_test_report.txt`
 
-- [ ] **Step 1: Run structural slide checks**
+- [ ] **步骤 1：运行幻灯片结构检查**
 
-Run:
+运行：
 
 ```powershell
 python 'C:\Users\User\.codex\plugins\cache\openai-primary-runtime\presentations\26.813.12317\skills\presentations\scripts\slides_test.py' 'C:\Users\User\Documents\F_model\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx'
 ```
 
-Expected: no text-overflow or invalid-slide errors.
+预期：无文本溢出或无效幻灯片错误。
 
-- [ ] **Step 2: Render all slides to PNGs and create a montage**
+- [ ] **步骤 2：把所有幻灯片渲染为 PNG 并生成拼图**
 
-Run:
+运行：
 
 ```powershell
 python 'C:\Users\User\.codex\plugins\cache\openai-primary-runtime\presentations\26.813.12317\skills\presentations\scripts\render_slides.py' 'C:\Users\User\Documents\F_model\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx' --output_dir 'C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\rendered'
 ```
 
-Inspect the montage and every slide image. Correct clipping, low contrast, unintended overlap, and empty-space imbalance in `build_deck.mjs`, then regenerate and repeat checks until clean.
+检查拼图和每一页幻灯片图像。在 `build_deck.mjs` 中修正裁切、对比度不足、非预期重叠和留白失衡问题，然后重新生成并重复检查，直到全部通过。
 
-- [ ] **Step 3: Verify the content-count criteria**
+- [ ] **步骤 3：核验内容数量标准**
 
-Check: 60–66 slides; 17 distinct paper sections; exactly three deep-dive slides per work; all records contain a source block; all note triplets meet the 500-Chinese-character threshold; no reused paper figures. Record the results in `slides_test_report.txt`.
+检查：60–66 页幻灯片；17 个互不重复的论文章节；每项工作恰好三页深读幻灯片；所有记录都含来源块；每篇论文的三段备注合计都达到 500 中文字符阈值；无复用论文插图。把结果记录到 `slides_test_report.txt`。
 
-### Task 5: Deliver the verified artifact
+### 任务 5：交付经过核验的成果物
 
-**Files:**
-- Modify: `C:\Users\User\Documents\F_model\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx`
-- Modify: `C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\slides_test_report.txt`
+**文件：**
+- 修改：`C:\Users\User\Documents\F_model\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx`
+- 修改：`C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\slides_test_report.txt`
 
-- [ ] **Step 1: Confirm final output exists and is non-empty**
+- [ ] **步骤 1：确认最终产物存在且非空**
 
-Run:
+运行：
 
 ```powershell
 Get-Item 'C:\Users\User\Documents\F_model\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx' | Select-Object Name,Length,LastWriteTime
 ```
 
-Expected: `Length` is greater than zero.
+预期：`Length` 大于零。
 
-- [ ] **Step 2: Hand off the deck with scope and verification summary**
+- [ ] **步骤 2：随范围与校验摘要一并交付演示文稿**
 
-Report that the deck covers 17 works, distinguishes peer-reviewed papers from the marked preprint, includes source-linked speaker notes, and was rendered and lint-checked. Link only the final PPTX in the delivery response.
+在报告中说明：该演示文稿覆盖 17 项工作，区分了同行评审论文与被标注的预印本，包含带来源链接的讲者备注，并已完成渲染与 lint 检查。交付回复中只给出最终 PPTX 的链接。
 
-## Self-Review
+## 自检
 
-1. **Spec coverage:** Tasks 1–2 implement the fixed 17-paper corpus, three-slide format, detailed methods, notes, and source provenance. Task 3 implements the 16:9 visual system and 60–66-slide deck. Task 4 covers visual and structural QA. Task 5 covers the deliverable and handoff. No design-spec requirement is unassigned.
-2. **Placeholder scan:** The plan contains no `TODO`, `TBD`, “similar to”, or deferred implementation language. Paths, commands, expected outcomes, and content schema are explicit.
-3. **Type consistency:** `paper_records.js` is the single source of paper fields; `build_deck.mjs` consumes `record`, `kind`, notes, and source URLs using the schema defined in Task 2. Output and QA paths match across Tasks 3–5.
+1. **规格覆盖：** 任务 1–2 落实固定的 17 篇论文池、三页幻灯片格式、详细方法、备注与来源溯源。任务 3 落实 16:9 视觉系统与 60–66 页演示文稿。任务 4 覆盖视觉与结构 QA。任务 5 覆盖交付物与交接。设计规格中的每项要求都已分配。
+2. **占位符扫描：** 本计划不含 `TODO`、`TBD`、“similar to”或延后实现的措辞。路径、命令、预期结果与内容 schema 均已明确。
+3. **类型一致性：** `paper_records.js` 是论文各字段的唯一来源；`build_deck.mjs` 按任务 2 定义的 schema 消费 `record`、`kind`、备注与来源 URL。任务 3–5 的输出路径与 QA 路径保持一致。

@@ -1,4 +1,4 @@
-"""Regression coverage for standalone GNI converter safety guards."""
+"""独立 GNI 转换器安全防护的回归测试。"""
 
 import importlib.util
 import inspect

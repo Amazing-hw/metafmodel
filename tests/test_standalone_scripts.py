@@ -1,4 +1,4 @@
-"""Verify converter scripts can run independently of the ``semg_h5`` package."""
+"""验证各转换脚本能够脱离 ``semg_h5`` 包独立运行。"""
 
 import ast
 import csv
