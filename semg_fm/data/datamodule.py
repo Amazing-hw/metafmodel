@@ -22,6 +22,36 @@ from .samplers import TaskBalancedBatchSampler, TaskEvaluationBatchSampler
 from .window_dataset import CanonicalWindowDataset
 
 
+def build_datamodule(
+    data: Mapping[str, Any], task_id: str | None = None, label_budget: float = 1.0
+) -> "CanonicalDataModule":
+    """Build the shared datamodule from a resolved Hydra ``data`` mapping.
+
+    Entry points pass the composed ``cfg.data`` (an OmegaConf ``DictConfig``,
+    which satisfies the ``Mapping`` protocol).  The manifest defaults to
+    ``root/manifest.csv``; a ``make_splits`` output CSV may be passed instead.
+    """
+    raw_root = data.get("root")
+    if raw_root is None or not str(raw_root).strip():
+        raise ValueError("data.root must be provided")
+    root = Path(str(raw_root))
+    raw_manifest = data.get("manifest_path")
+    manifest = Path(str(raw_manifest)) if raw_manifest is not None and str(raw_manifest).strip() else root / "manifest.csv"
+    if task_id is None and data.get("task_id") is not None:
+        task_id = str(data.get("task_id"))
+    return CanonicalDataModule(
+        manifest_path=manifest,
+        root=root,
+        window_ms=float(data.get("window_ms", 200)),
+        stride_ms=float(data.get("stride_ms", 100)),
+        batch_size=int(data.get("batch_size", 8)),
+        num_workers=int(data.get("num_workers", 0)),
+        sampler_seed=int(data.get("sampler_seed", 0)),
+        task_id=task_id,
+        label_budget=float(label_budget),
+    )
+
+
 class _EvaluationDataset(Dataset):
     """Attach the sampler's padding marker without changing canonical records."""
 
@@ -124,6 +154,8 @@ class CanonicalDataModule(LightningDataModule):
         batch_size: int,
         num_workers: int = 0,
         sampler_seed: int = 0,
+        task_id: str | None = None,
+        label_budget: float = 1.0,
     ) -> None:
         super().__init__()
         if manifest_path is None and not split_paths:
@@ -136,6 +168,10 @@ class CanonicalDataModule(LightningDataModule):
         self.batch_size = int(batch_size)
         self.num_workers = int(num_workers)
         self.sampler_seed = int(sampler_seed)
+        self.task_id = task_id
+        self.label_budget = float(label_budget)
+        if not 0.0 < self.label_budget <= 1.0:
+            raise ValueError("label_budget must be in (0, 1]")
         self.train_dataset = None
         self.val_dataset = None
         self.test_dataset = None
@@ -151,10 +187,16 @@ class CanonicalDataModule(LightningDataModule):
 
     def _dataset_for(self, split: str) -> CanonicalWindowDataset:
         manifest_path = self._manifest_for(split)
-        return CanonicalWindowDataset.from_manifest(
+        dataset = CanonicalWindowDataset.from_manifest(
             manifest_path, split=split, window_ms=self.window_ms, stride_ms=self.stride_ms,
             root=self.root if self.root is not None else manifest_path.parent,
+            task_id=self.task_id,
         )
+        # Label budgets constrain the fine-tuning training split only;
+        # validation and evaluation always use the full data.
+        if split == "train":
+            dataset.apply_label_budget(self.label_budget, self.sampler_seed)
+        return dataset
 
     def _sampler_for(self, dataset) -> TaskBalancedBatchSampler | None:
         if not len(dataset):

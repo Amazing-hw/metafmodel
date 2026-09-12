@@ -18,6 +18,24 @@ def test_pretrain_config_composes_with_four_devices():
     assert cfg.data.channels == 16
 
 
+def test_pretrain_config_declares_all_optimized_objective_controls():
+    with initialize_config_dir(version_base="1.3", config_dir=CONFIG_DIR):
+        cfg = compose(config_name="pretrain")
+    assert cfg.objective.latent_weight == 1.0
+    assert cfg.objective.kinematic_weight == 1.0
+    assert cfg.objective.kinematic_dim is None
+    assert cfg.objective.ema_decay == 0.996
+    assert cfg.optimizer.learning_rate == 1e-3
+    assert cfg.optimizer.weight_decay == 0.05
+    assert cfg.optimizer.warmup_steps == 1000
+    assert cfg.optimizer.max_steps == 100000
+    assert cfg.mask.temporal_span == 2
+    assert cfg.mask.ring_arc == 3
+    assert cfg.mask.full_channel_probability == 0.1
+    assert list(cfg.mask.block_shape) == [2, 2]
+    assert cfg.mask.random_patch_probability == 0.15
+
+
 def test_cpu_smoke_profile_disables_distributed_training():
     with initialize_config_dir(version_base="1.3", config_dir=CONFIG_DIR):
         cfg = compose(config_name="pretrain", overrides=["trainer=cpu_smoke"])
@@ -29,9 +47,9 @@ def test_cpu_smoke_profile_disables_distributed_training():
 def test_pretrain_default_declares_a_null_data_root_that_accepts_an_override():
     with initialize_config_dir(version_base="1.3", config_dir=CONFIG_DIR):
         default = compose(config_name="pretrain")
-        configured = compose(config_name="pretrain", overrides=["data.root=tests/fixtures/canonical_meta"])
+        configured = compose(config_name="pretrain", overrides=["data.root=tests"])
     assert default.data.root is None
-    assert configured.data.root == "tests/fixtures/canonical_meta"
+    assert configured.data.root == "tests"
 
 
 @pytest.mark.parametrize("seed", [True, -1, 1.2, "4"])

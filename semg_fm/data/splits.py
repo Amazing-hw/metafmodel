@@ -69,7 +69,9 @@ def assign_group_splits(frame: pd.DataFrame, seed: int, ratios=(0.8, 0.1, 0.1)) 
         else:
             seen[subject_key] = position
         if _is_present(row["pair_id"]):
-            pair_key = f"pair:{row['pair_id']}"
+            # pair_id strings are only unique within a dataset; namespace them
+            # so two corpora sharing a pair_id string are not merged.
+            pair_key = f"pair:{row['dataset_id']}\x1f{row['pair_id']}"
             if pair_key in seen:
                 union(position, seen[pair_key])
             else:
@@ -81,7 +83,7 @@ def assign_group_splits(frame: pd.DataFrame, seed: int, ratios=(0.8, 0.1, 0.1)) 
         keys = component_keys.setdefault(root, set())
         keys.add(f"subject:{row['dataset_id']}\x1f{row['subject_id']}")
         if _is_present(row["pair_id"]):
-            keys.add(f"pair:{row['pair_id']}")
+            keys.add(f"pair:{row['dataset_id']}\x1f{row['pair_id']}")
     assignments = {}
     cumulative = (values[0], values[0] + values[1], 1.0)
     for keys in component_keys.values():
@@ -104,9 +106,9 @@ def assert_no_leakage(frame: pd.DataFrame) -> None:
     if missing:
         raise ValueError(f"missing columns: {', '.join(missing)}")
     for key_name, mask in (("pair_id", frame["pair_id"].map(_is_present)),):
-        grouped = frame.loc[mask].groupby(key_name, dropna=False)["split"].nunique(dropna=False)
+        grouped = frame.loc[mask].groupby(["dataset_id", key_name], dropna=False)["split"].nunique(dropna=False)
         if (grouped > 1).any():
-            raise ValueError(f"leakage detected for {key_name}")
+            raise ValueError(f"leakage detected for dataset/{key_name}")
     grouped = frame.groupby(["dataset_id", "subject_id"], dropna=False)["split"].nunique(dropna=False)
     if (grouped > 1).any():
         raise ValueError("leakage detected for dataset/subject group")

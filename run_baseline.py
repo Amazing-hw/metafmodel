@@ -9,10 +9,11 @@ import hydra
 from lightning import Trainer, seed_everything
 from omegaconf import DictConfig, OmegaConf
 
-from finetune import _module_from_config as downstream_module_from_config
-from pretrain import build_datamodule, manifest_digest
-from semg_fm.config import validate_devices, validate_seed
+from semg_fm.config import build_trainer_options, validate_devices, validate_seed
+from semg_fm.data.datamodule import build_datamodule
+from semg_fm.downstream_config import downstream_module_from_config
 from semg_fm.lightning.baseline_module import BaselinePretrainModule
+from semg_fm.reproducibility import manifest_digest, write_run_metadata
 
 
 def build_baseline_module(cfg: DictConfig):
@@ -38,7 +39,11 @@ def main(cfg: DictConfig) -> None:
     validate_devices(cfg.trainer.devices)
     validate_seed(cfg.seed)
     seed_everything(cfg.seed, workers=True)
-    datamodule = build_datamodule(cfg.data)
+    datamodule = build_datamodule(
+        cfg.data,
+        task_id=str(cfg.task.name) if cfg.stage == "finetune" else None,
+        label_budget=float(cfg.get("label_budget", 1.0)) if cfg.stage == "finetune" else 1.0,
+    )
     module = build_baseline_module(cfg)
     if cfg.stage == "finetune" and cfg.pretrained_checkpoint:
         module.load_backbone_checkpoint(str(cfg.pretrained_checkpoint))
@@ -51,7 +56,10 @@ def main(cfg: DictConfig) -> None:
     )
     trainer_options = OmegaConf.to_container(cfg.trainer, resolve=True)
     assert isinstance(trainer_options, dict)
-    Trainer(**trainer_options).fit(module, datamodule=datamodule, ckpt_path=cfg.resume_from)
+    data_config = OmegaConf.to_container(cfg.data, resolve=True)
+    assert isinstance(data_config, dict)
+    write_run_metadata(output, manifest_path=datamodule.manifest_path, data_config=data_config, trainer_config=trainer_options, command=f"baseline:{cfg.stage}")
+    Trainer(**build_trainer_options(trainer_options)).fit(module, datamodule=datamodule, ckpt_path=cfg.resume_from)
 
 
 if __name__ == "__main__":

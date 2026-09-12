@@ -164,6 +164,45 @@ def test_task_balanced_sampler_reads_epoch_when_its_loader_starts():
     assert sampler.epoch == 5
 
 
+def test_task_balanced_sampler_yields_batches_when_one_task_is_too_small():
+    class UnevenTaskDataset(Dataset):
+        def __init__(self):
+            self.items = [_item(task, 2) for task in ("a",) * 8 + ("b",) * 3]
+
+        def __len__(self):
+            return len(self.items)
+
+        def __getitem__(self, index):
+            return self.items[index]
+
+    dataset = UnevenTaskDataset()
+    sampler = TaskBalancedBatchSampler(dataset, batch_size=4, seed=3)
+
+    # Task b has 3 windows (< one batch); task a still trains instead of the
+    # epoch collapsing to zero batches.
+    batches = list(sampler)
+    assert len(batches) == 2
+    assert {dataset[batch[0]]["task_id"] for batch in batches} == {"a"}
+
+
+def test_task_balanced_sampler_length_matches_iteration():
+    dataset = _TaskDataset()
+    sampler = TaskBalancedBatchSampler(dataset, batch_size=2, seed=3)
+    assert len(sampler) == len(list(sampler))
+
+
+def test_task_balanced_sampler_state_dict_round_trip_preserves_epoch():
+    dataset = _TaskDataset()
+    sampler = TaskBalancedBatchSampler(dataset, batch_size=2, seed=3)
+    sampler.set_epoch(7)
+
+    restored = TaskBalancedBatchSampler(dataset, batch_size=2, seed=3)
+    restored.load_state_dict(sampler.state_dict())
+
+    assert restored.epoch == 7
+    assert list(restored) == list(sampler)
+
+
 def test_datamodule_yields_task_homogeneous_train_batch(canonical_meta_root):
     module = CanonicalDataModule(
         manifest_path=canonical_meta_root / "manifest.csv",

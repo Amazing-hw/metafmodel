@@ -70,3 +70,23 @@ def test_connected_subject_pair_component_gets_one_split():
     )
     assigned = assign_group_splits(frame, seed=17, ratios=(0.7, 0.15, 0.15))
     assert assigned.split.nunique() == 1
+
+
+def test_same_pair_id_in_different_datasets_is_not_merged():
+    frame = pd.DataFrame(
+        {
+            "path": ["a", "b"],
+            "dataset_id": ["d1", "d2"],
+            "subject_id": ["s1", "s2"],
+            "pair_id": ["p", "p"],
+            "official_split": ["", ""],
+        }
+    )
+    # Namespaced pair keys make the two rows independent components, so their
+    # hashed assignments diverge for at least one seed.
+    outcomes = [
+        assign_group_splits(frame, seed=seed).loc[0, "split"]
+        == assign_group_splits(frame, seed=seed).loc[1, "split"]
+        for seed in range(24)
+    ]
+    assert not all(outcomes)

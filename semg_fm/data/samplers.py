@@ -66,6 +66,13 @@ class TaskBalancedBatchSampler(Sampler[list[int]]):
     def set_epoch(self, epoch: int) -> None:
         self.epoch = int(epoch)
 
+    def state_dict(self) -> dict[str, int]:
+        """Persist the shuffle epoch so DataLoader resume replays deterministically."""
+        return {"epoch": self.epoch}
+
+    def load_state_dict(self, state: dict[str, int]) -> None:
+        self.epoch = int(state.get("epoch", 0))
+
     def _rank_batches(self) -> dict[str, list[list[int]]]:
         generator = torch.Generator().manual_seed(self.seed + self.epoch)
         batches: dict[str, list[list[int]]] = {}
@@ -86,14 +93,19 @@ class TaskBalancedBatchSampler(Sampler[list[int]]):
         if self._epoch_getter is not None:
             self.set_epoch(self._epoch_getter())
         batches = self._rank_batches()
-        shared_batch_count = min(len(task_batches) for task_batches in batches.values())
-        for batch_index in range(shared_batch_count):
+        # Interleave one batch per task per round until every task is exhausted.
+        # A min() cutoff would starve the whole epoch whenever one task has
+        # fewer windows than a batch; skip exhausted tasks instead.
+        longest = max((len(task_batches) for task_batches in batches.values()), default=0)
+        for batch_index in range(longest):
             for task_id in self._groups:
-                yield batches[task_id][batch_index]
+                task_batches = batches[task_id]
+                if batch_index < len(task_batches):
+                    yield task_batches[batch_index]
 
     def __len__(self) -> int:
         batches = self._rank_batches()
-        return len(self._groups) * min(len(task_batches) for task_batches in batches.values())
+        return sum(len(task_batches) for task_batches in batches.values())
 
 
 class TaskEvaluationBatchSampler(Sampler[list[int]]):

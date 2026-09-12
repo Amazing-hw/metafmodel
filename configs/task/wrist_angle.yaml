@@ -1,4 +1,7 @@
-# Select one named canonical target per run for interpretable wrist metrics.
+# GNI wrist angles: flexion/extension and radial/ulnar deviation. The
+# converter names targets from the sanitized source fields, so verify the
+# emitted names against the converted HDF5 — a missing target_name raises
+# with the list of available names at the first batch.
 name: wrist_angle
 output_dim: 1
 target_name: flexion_extension

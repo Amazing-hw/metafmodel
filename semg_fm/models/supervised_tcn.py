@@ -97,11 +97,12 @@ class _CausalResidualBlock(nn.Module):
 class SupervisedTCN(nn.Module):
     """Encode canonical ``[B,T,16]`` sEMG with a masked causal TCN.
 
-    ``forward`` returns temporal features ``[B,N,D]`` for conventional
-    supervised heads.  Use :meth:`extract_features` when the pooled vector and
-    token-validity mask are also required.  Masked input values are multiplied
-    out before the feature stem and invalid tokens are re-zeroed after every
-    residual block, so changing a masked raw value cannot affect any output.
+    ``forward`` returns the shared backbone mapping (``z_temporal`` /
+    ``z_motion`` / ``pooled`` / ``token_mask``) required by the downstream
+    module; use :meth:`extract_features` when only the temporal features are
+    needed.  Masked input values are multiplied out before the feature stem
+    and invalid tokens are re-zeroed after every residual block, so changing
+    a masked raw value cannot affect any output.
     """
 
     def __init__(
@@ -141,11 +142,11 @@ class SupervisedTCN(nn.Module):
         *,
         valid_mask: torch.Tensor | None = None,
         sample_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """Return masked temporal features with shape ``[B,N,D]``."""
+    ) -> dict[str, torch.Tensor]:
+        """Return the shared backbone mapping with ``z_motion`` for downstream heads."""
         return self.extract_features(
             emg, observation_mask=observation_mask, valid_mask=valid_mask, sample_mask=sample_mask
-        )["z_temporal"]
+        )
 
     def extract_features(
         self,

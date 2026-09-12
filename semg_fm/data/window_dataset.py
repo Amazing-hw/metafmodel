@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -83,15 +84,30 @@ class CanonicalWindowDataset(Dataset):
                 self._index.append((Path(record["path"]), start_index, start_index + window_samples))
 
     @classmethod
-    def from_manifest(cls, manifest_path, split: str, window_ms: float, stride_ms: float, root=None):
+    def from_manifest(cls, manifest_path, split: str, window_ms: float, stride_ms: float, root=None, task_id: str | None = None):
         if split not in OFFICIAL_SPLITS:
             raise ValueError(f"split must be one of {sorted(OFFICIAL_SPLITS)}")
         manifest_path = Path(manifest_path)
         root = Path(root) if root is not None else manifest_path.parent
         frame = load_manifest(manifest_path, root)
-        selected = frame.loc[frame["official_split"] == split]
+        if task_id is not None and task_id not in set(frame["task_id"].astype(str)):
+            raise ValueError(f"no manifest records have task_id {task_id!r}")
         records = []
-        for _, row in selected.iterrows():
+        for _, row in frame.iterrows():
+            # Prefer a non-empty official split; fall back to the deterministic
+            # `split` column written by `make_splits`, so its output CSV can be
+            # passed directly as the manifest for later runs.
+            official = _text(row["official_split"]).strip()
+            if official in OFFICIAL_SPLITS:
+                row_split = official
+            elif "split" in row:
+                row_split = _text(row["split"]).strip()
+            else:
+                row_split = ""
+            if row_split != split:
+                continue
+            if task_id is not None and _text(row["task_id"]) != task_id:
+                continue
             sample_count, duration_s = int(row["sample_count"]), float(row["duration_s"])
             if "sample_rate_hz" in row and row["sample_rate_hz"] != "":
                 rate_hz = float(row["sample_rate_hz"])
@@ -106,10 +122,31 @@ class CanonicalWindowDataset(Dataset):
                 "task_id": _text(row["task_id"]), "record_id": _text(row.get("record_id", Path(row["path"]).stem)),
                 "subject_id": _text(row["subject_id"]), "session_id": _text(row["session_id"]),
                 "side": _text(row["side"]), "pair_id": _text(row["pair_id"]),
-                "official_split": _text(row["official_split"]),
+                "official_split": official,
                 "sample_count": sample_count, "sample_rate_hz": rate_hz,
             })
         return cls(records, window_ms, stride_ms)
+
+    def apply_label_budget(self, budget: float, seed: int) -> None:
+        """Keep windows from a deterministic subject-level subset of records.
+
+        Low-label fine-tuning selects whole subject groups (dataset/subject,
+        extended by ``pair_id`` so bilateral qwerty records stay together)
+        using a stable hash, so the same budget always keeps the same windows
+        and no group leaks across the kept/dropped boundary.
+        """
+        if not 0.0 < budget <= 1.0:
+            raise ValueError("label budget must be in (0, 1]")
+        if budget >= 1.0:
+            return
+        kept: list[tuple[Path, int, int]] = []
+        for entry in self._index:
+            record = self._records[entry[0]]
+            key = f"{seed}:{record['dataset_id']}:{record['subject_id']}:{record['pair_id']}"
+            point = int.from_bytes(hashlib.sha256(key.encode("utf-8")).digest()[:8], "big") / 2**64
+            if point < budget:
+                kept.append(entry)
+        self._index = kept
 
     def __len__(self) -> int:
         return len(self._index)

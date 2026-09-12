@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import h5py
 import numpy as np
 import pandas as pd
@@ -58,6 +60,74 @@ def test_dataset_construction_does_not_open_h5_files(canonical_meta_root, monkey
     assert calls == []
     ds[0]
     assert len(calls) == 1
+
+
+def _write_split_manifest(canonical_meta_root, official, split_column):
+    manifest = pd.read_csv(canonical_meta_root / "manifest.csv", keep_default_na=False)
+    manifest["official_split"] = official
+    manifest["split"] = split_column
+    path = canonical_meta_root / "split_manifest.csv"
+    manifest.to_csv(path, index=False)
+    # Keep H5 root attributes consistent with the rewritten manifest so item
+    # access passes attribute validation.
+    for row in manifest.itertuples():
+        with h5py.File(canonical_meta_root / row.path, "r+") as h5:
+            h5.attrs["official_split"] = str(row.official_split)
+    return manifest
+
+
+def test_from_manifest_falls_back_to_split_column_when_official_split_unset(canonical_meta_root):
+    manifest = _write_split_manifest(
+        canonical_meta_root,
+        official=["", "", "", "", "", ""],
+        split_column=["train", "train", "train", "val", "test", "test"],
+    )
+    train = CanonicalWindowDataset.from_manifest(
+        canonical_meta_root / "split_manifest.csv", split="train", window_ms=200, stride_ms=100,
+        root=canonical_meta_root,
+    )
+    train_paths = {path.name for path, _, _ in train._index}
+    expected = {Path(row).name for row in manifest.loc[manifest.split == "train", "path"]}
+    assert train_paths == expected
+    assert len(train) > 0
+    assert train[0]["emg"].shape[0] == 400  # item access still validates attributes
+
+
+def test_from_manifest_prefers_official_split_over_split_column(canonical_meta_root):
+    manifest = _write_split_manifest(
+        canonical_meta_root,
+        official=["val", "", "", "", "", ""],
+        split_column=["train", "train", "train", "val", "test", "test"],
+    )
+    val = CanonicalWindowDataset.from_manifest(
+        canonical_meta_root / "split_manifest.csv", split="val", window_ms=200, stride_ms=100,
+        root=canonical_meta_root,
+    )
+    val_paths = {path.name for path, _, _ in val._index}
+    assert Path(manifest.loc[0, "path"]).name in val_paths  # official_split wins over split column
+    train = CanonicalWindowDataset.from_manifest(
+        canonical_meta_root / "split_manifest.csv", split="train", window_ms=200, stride_ms=100,
+        root=canonical_meta_root,
+    )
+    train_paths = {path.name for path, _, _ in train._index}
+    assert Path(manifest.loc[0, "path"]).name not in train_paths
+
+
+def test_from_manifest_filters_records_by_task_id(canonical_meta_root):
+    ds = CanonicalWindowDataset.from_manifest(
+        canonical_meta_root / "manifest.csv", split="train", window_ms=200, stride_ms=100,
+        task_id="pose",
+    )
+    tasks = {ds._records[path]["task_id"] for path, _, _ in ds._index}
+    assert tasks == {"pose"}
+
+
+def test_from_manifest_rejects_a_task_id_absent_from_the_manifest(canonical_meta_root):
+    with pytest.raises(ValueError, match="task_id"):
+        CanonicalWindowDataset.from_manifest(
+            canonical_meta_root / "manifest.csv", split="train", window_ms=200, stride_ms=100,
+            task_id="nonexistent",
+        )
 
 
 def test_pose_invalid_ik_frames_become_target_mask(pose_dataset):

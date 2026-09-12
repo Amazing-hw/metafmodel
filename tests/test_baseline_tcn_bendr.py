@@ -37,6 +37,14 @@ def test_supervised_tcn_returns_masked_temporal_features_and_pooled_summary():
     assert outputs["token_mask"].dtype is torch.bool
 
 
+def test_supervised_tcn_forward_returns_the_shared_backbone_mapping():
+    model = SupervisedTCN(d_model=12, depth=2, patch_samples=20, channels=16, dropout=0.0)
+    outputs = model(torch.randn(2, 100, 16))
+
+    assert isinstance(outputs, dict)
+    assert outputs["z_motion"].shape == (2, 5, 12)
+
+
 def test_supervised_tcn_masked_input_values_cannot_change_outputs():
     torch.manual_seed(5)
     model = SupervisedTCN(d_model=8, depth=2, patch_samples=20, dropout=0.0).eval()

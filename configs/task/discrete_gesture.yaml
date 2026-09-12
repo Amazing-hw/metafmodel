@@ -1,7 +1,10 @@
-# Replace class_names with the exact converter-emitted event vocabulary.
+# GNI discrete_gestures has 9 event classes (Meta Nature paper): index/middle
+# press and release, thumb tap, and four directional swipes. Verify these names
+# against the converted HDF5 events before training; a mismatched label raises
+# at the first batch instead of being silently ignored.
 name: discrete_gesture
 output_dim: null
 target_name: null
-class_names: [pinch, fist]
+class_names: [index_press, index_release, middle_press, middle_release, thumb_tap, swipe_up, swipe_down, swipe_left, swipe_right]
 vocabulary: []
 event_tolerance_s: 0.05
