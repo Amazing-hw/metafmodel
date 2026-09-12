@@ -49,6 +49,11 @@ def main(cfg: DictConfig) -> None:
     trainer = Trainer(**build_trainer_options(trainer_options))
     results = trainer.test(module, datamodule=datamodule)
     metrics = results[0] if results else {}
+    if not metrics:
+        raise RuntimeError(
+            "the test split produced no metrics, so metrics.json would be written empty. "
+            "Check that the manifest has test records for this task."
+        )
     write_evaluation_outputs(
         output,
         metrics=metrics,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from semg_fm.metrics.events import event_f1
+from semg_fm.metrics.events import event_f1, event_f1_from_counts
 from semg_fm.metrics.regression import masked_regression_metrics
 from semg_fm.metrics.text import character_error_rate, levenshtein_distance
 from semg_fm.models.heads import CTCTextHead, GestureEventHead, TemporalRegressionHead
@@ -70,3 +70,20 @@ def test_task_registry_routes_all_five_canonical_tasks_to_supported_protocols():
     assert task_kind("handwriting") == "ctc"
     assert task_kind("typing") == "ctc"
     assert task_spec("typing").requires_pair_group is True
+
+
+def test_event_f1_from_counts_is_the_precision_recall_harmonic_mean():
+    # The superficially similar 2*TP/(TP+FP+FN) returns 2.0 for a perfect
+    # match, which is why the accumulated-count path shares this helper.
+    assert event_f1_from_counts(1, 0, 0) == 1.0
+    assert event_f1_from_counts(3, 0, 0) == 1.0
+    assert event_f1_from_counts(0, 3, 2) == 0.0
+    assert event_f1_from_counts(0, 0, 0) == 0.0
+    # precision 3/5, recall 3/8 -> 0.45 / 0.975
+    assert abs(event_f1_from_counts(3, 2, 5) - 0.4615384615384615) < 1e-12
+
+
+def test_event_f1_from_counts_never_exceeds_one():
+    for counts in [(1, 0, 0), (3, 2, 5), (0, 0, 4), (7, 1, 2), (5, 5, 5), (100, 0, 0)]:
+        value = event_f1_from_counts(*counts)
+        assert 0.0 <= value <= 1.0, (counts, value)

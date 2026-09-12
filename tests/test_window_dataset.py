@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 
 import h5py
@@ -254,3 +255,46 @@ def test_wrist_targets_are_name_keyed_and_aligned(canonical_meta_root):
     assert set(item["target"]) == {"flexion_extension", "pronation"}
     assert all(value.shape == (400,) for value in item["target"].values())
     assert all(value.dtype == torch.bool for value in item["target_mask"].values())
+
+
+# Previously a manifest no split could be selected from, or a label budget that
+# kept no group, silently produced an empty dataset and a run that took zero
+# steps.  These tests pin the loud failures.
+
+
+def test_from_manifest_rejects_a_manifest_that_cannot_select_any_split(canonical_meta_root):
+    manifest = pd.read_csv(canonical_meta_root / "manifest.csv", keep_default_na=False)
+    manifest["official_split"] = ""
+    path = canonical_meta_root / "unsplittable.csv"
+    manifest.to_csv(path, index=False)
+
+    with pytest.raises(ValueError, match="cannot select a split"):
+        CanonicalWindowDataset.from_manifest(
+            path, split="train", window_ms=200, stride_ms=100, root=canonical_meta_root
+        )
+
+
+def test_dataset_rejects_records_shorter_than_one_window(tmp_path):
+    record = {
+        "path": tmp_path / "short.h5", "dataset_id": "d", "task_id": "pose",
+        "record_id": "r", "subject_id": "s", "session_id": "1", "side": "left",
+        "pair_id": "", "official_split": "train", "sample_count": 100,
+        "sample_rate_hz": 2000.0,
+    }
+
+    with pytest.raises(ValueError, match="no windows fit"):
+        CanonicalWindowDataset([record], window_ms=200, stride_ms=100)
+
+
+def test_label_budget_rejects_a_budget_that_keeps_no_group(pose_dataset):
+    seed = 7
+    points = []
+    for record in pose_dataset._records.values():
+        key = f"{seed}:{record['dataset_id']}:{record['subject_id']}:{record['pair_id']}"
+        digest = hashlib.sha256(key.encode("utf-8")).digest()[:8]
+        points.append(int.from_bytes(digest, "big") / 2**64)
+    # Strictly below the smallest group point, so no group can be selected.
+    budget = min(points) / 2
+
+    with pytest.raises(ValueError, match="kept none"):
+        pose_dataset.apply_label_budget(budget, seed)

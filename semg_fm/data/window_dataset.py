@@ -82,6 +82,11 @@ class CanonicalWindowDataset(Dataset):
             sample_count = int(record["sample_count"])
             for start_index in range(0, sample_count - window_samples + 1, stride_samples):
                 self._index.append((Path(record["path"]), start_index, start_index + window_samples))
+        if records and not self._index:
+            raise ValueError(
+                f"no windows fit in the selected records: each recording is shorter than "
+                f"one {self.window_ms} ms window, so the dataset would be empty."
+            )
 
     @classmethod
     def from_manifest(cls, manifest_path, split: str, window_ms: float, stride_ms: float, root=None, task_id: str | None = None):
@@ -125,6 +130,20 @@ class CanonicalWindowDataset(Dataset):
                 "official_split": official,
                 "sample_count": sample_count, "sample_rate_hz": rate_hz,
             })
+        # A converter-written manifest has official_split 'unknown' and no 'split'
+        # column, so no split can ever be selected from it.  Without this check
+        # that misconfiguration silently yields an empty dataset and a training
+        # run that takes zero steps.
+        if not records:
+            split_column = "split" in frame.columns
+            names = set(frame["official_split"].astype(str).str.strip())
+            if not split_column and not (names & OFFICIAL_SPLITS):
+                raise ValueError(
+                    f"{manifest_path} cannot select a split: it has no 'split' column and "
+                    "no official_split values in train/val/test. Run make_splits.py and "
+                    "pass its output as the manifest, or convert a corpus that ships "
+                    "official splits."
+                )
         return cls(records, window_ms, stride_ms)
 
     def apply_label_budget(self, budget: float, seed: int) -> None:
@@ -146,6 +165,17 @@ class CanonicalWindowDataset(Dataset):
             point = int.from_bytes(hashlib.sha256(key.encode("utf-8")).digest()[:8], "big") / 2**64
             if point < budget:
                 kept.append(entry)
+        if not kept:
+            groups = {
+                f"{record['dataset_id']}:{record['subject_id']}:{record['pair_id']}"
+                for record in self._records.values()
+            }
+            raise ValueError(
+                f"label budget {budget} kept none of the {len(groups)} subject groups. "
+                "The budget is a per-group hash draw, not an exact fraction, so a small "
+                "budget over few groups can select nothing; the run would otherwise "
+                "train for zero steps without reporting an error."
+            )
         self._index = kept
 
     def __len__(self) -> int:

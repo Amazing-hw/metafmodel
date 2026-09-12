@@ -176,3 +176,25 @@ def test_converter_script_executes_as_a_clean_subprocess(
             assert h5.attrs["task_id"] == task_id
             assert h5["signal/emg"].shape == (4, 16)
             assert label_path in h5
+
+
+def test_converters_keep_the_manifest_lock_importable_off_windows():
+    """A module-scope ``import msvcrt`` made every converter Windows-only.
+
+    The lock must stay OS-released advisory locking on Windows while also
+    working on POSIX, and it must never regress to O_EXCL lock files.
+    """
+    for name in CONVERTER_NAMES:
+        source = (SEMG_H5_DIRECTORY / name).read_text(encoding="utf-8")
+        module_scope_imports = {
+            alias.name
+            for node in ast.parse(source).body
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        }
+
+        assert "msvcrt" not in module_scope_imports, f"{name} imports msvcrt at module scope"
+        assert "msvcrt.locking" in source, f"{name} lost the Windows advisory lock"
+        assert "fcntl.flock" in source, f"{name} has no POSIX advisory lock"
+        assert "os.name" in source, f"{name} does not guard the platform import"
+        assert "O_EXCL" not in source, f"{name} must not use O_EXCL lock files"

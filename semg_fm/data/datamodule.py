@@ -196,6 +196,12 @@ class CanonicalDataModule(LightningDataModule):
         # validation and evaluation always use the full data.
         if split == "train":
             dataset.apply_label_budget(self.label_budget, self.sampler_seed)
+            if not len(dataset):
+                raise ValueError(
+                    "the training split is empty, so training would run for zero steps "
+                    "without reporting anything. Check that the manifest has train records "
+                    "for this task and that the label budget kept at least one group."
+                )
         return dataset
 
     def _sampler_for(self, dataset) -> TaskBalancedBatchSampler | None:

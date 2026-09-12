@@ -1,3 +1,4 @@
+import h5py
 import pytest
 import pandas as pd
 import torch
@@ -347,3 +348,50 @@ def test_distributed_evaluation_padding_keeps_rank_lengths_equal_and_marks_dupli
     assert len(nonpadding) == 7
     assert padding
     assert all(entry.is_padding for entry in padding)
+
+
+def test_datamodule_rejects_an_empty_training_split(canonical_meta_root):
+    """Training on zero windows used to run zero steps and report nothing."""
+    manifest = pd.read_csv(canonical_meta_root / "manifest.csv", keep_default_na=False)
+    manifest["official_split"] = ""
+    manifest["split"] = "test"
+    path = canonical_meta_root / "no_train.csv"
+    manifest.to_csv(path, index=False)
+    module = CanonicalDataModule(
+        manifest_path=path, root=canonical_meta_root, window_ms=100, stride_ms=100,
+        batch_size=2, num_workers=0,
+    )
+
+    with pytest.raises(ValueError, match="training split is empty"):
+        module.setup("fit")
+
+
+def test_evaluation_sampler_reads_task_ids_without_opening_h5_files(canonical_meta_root, monkeypatch):
+    """Grouping windows by task must read the manifest index, not the signals.
+
+    The sampler is built from the unwrapped canonical dataset, so it can read
+    ``_index``/``_records`` directly.  Handing it the padded loader wrapper
+    instead would fall back to per-window indexing and open one HDF5 file per
+    window on every evaluation epoch.
+    """
+    real_file = h5py.File
+    calls = []
+
+    def observed_file(*args, **kwargs):
+        calls.append(args[0])
+        return real_file(*args, **kwargs)
+
+    module = CanonicalDataModule(
+        manifest_path=canonical_meta_root / "manifest.csv",
+        root=canonical_meta_root,
+        window_ms=100,
+        stride_ms=100,
+        batch_size=2,
+        num_workers=0,
+    )
+    module.setup("test")
+    monkeypatch.setattr("semg_fm.data.window_dataset.h5py.File", observed_file)
+
+    module.test_dataloader()
+
+    assert calls == [], f"evaluation sampler opened {len(calls)} HDF5 file(s)"

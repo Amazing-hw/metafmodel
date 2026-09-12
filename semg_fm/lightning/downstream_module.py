@@ -10,7 +10,7 @@ from lightning import LightningModule
 from torch import nn
 from torch.nn import functional as F
 
-from semg_fm.metrics.events import event_f1
+from semg_fm.metrics.events import event_f1, event_f1_from_counts
 from semg_fm.metrics.regression import masked_regression_metrics
 from semg_fm.metrics.text import levenshtein_distance
 from semg_fm.models.heads import CTCTextHead, GestureEventHead, TemporalRegressionHead
@@ -336,9 +336,9 @@ class DownstreamModule(LightningModule):
             row["windows"] = int(values["windows"])
             row["loss"] = values["loss"] / max(1, int(values["windows"]))
             if kind == "events":
-                tp, fp, fn = values["tp"], values["fp"], values["fn"]
-                denominator = tp + fp + fn
-                row["event_f1"] = 2.0 * tp / denominator if denominator > 0 else 0.0
+                row["event_f1"] = event_f1_from_counts(
+                    values["tp"], values["fp"], values["fn"]
+                )
             elif kind == "ctc":
                 row["character_error_rate"] = (
                     values["edits"] / values["ref_chars"] if values["ref_chars"] > 0 else 0.0
@@ -432,8 +432,7 @@ class DownstreamModule(LightningModule):
             totals = tensors
         kind = task_kind(self.task_id)
         if kind == "events":
-            denominator = totals["tp"] + totals["fp"] + totals["fn"]
-            f1 = 2.0 * totals["tp"] / denominator if denominator > 0 else 0.0
+            f1 = event_f1_from_counts(totals["tp"], totals["fp"], totals["fn"])
             self.log(f"{stage}/{self.task_id}_event_f1", f1, on_step=False, on_epoch=True, sync_dist=False, rank_zero_only=True)
         elif kind == "ctc":
             cer = totals["edits"] / totals["ref_chars"] if totals["ref_chars"] > 0 else 0.0

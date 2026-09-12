@@ -316,3 +316,100 @@ def test_direct_student_round_trip_serializes_complete_architecture(tmp_path):
         "channels": 16, "dropout": 0.0,
     }
     assert restored.student.patch_samples == 40
+
+
+# The masked-latent objective once degenerated into a parameter-independent
+# constant because masked tokens were also marked unobserved, which zeroed the
+# student output the loss reads.  These tests fail if that wiring ever returns.
+
+
+def _gradient_module() -> PretrainModule:
+    """A module whose only parameter movement can come from the objective."""
+    return PretrainModule(
+        model_config={"d_model": 8, "depth": 1, "heads": 2, "patch_samples": 40},
+        ema_decay=0.5,
+        learning_rate=1e-2,
+        weight_decay=0.0,
+        warmup_steps=0,
+        max_steps=1,
+    )
+
+
+def _gradient_batch() -> dict:
+    generator = torch.Generator().manual_seed(0)
+    return {
+        "emg": torch.randn(4, 80, 16, generator=generator),
+        "sample_mask": torch.ones(4, 80, dtype=torch.bool),
+        "task_id": "pose",
+    }
+
+
+def test_masked_latent_objective_is_not_a_parameter_independent_constant():
+    module = _gradient_module()
+    _, losses = module._losses(_gradient_batch())
+
+    latent = losses["latent"]
+    degenerate = 1.0 + 1.0 / (2.0 * module.student.d_model)
+
+    assert torch.isfinite(latent)
+    assert abs(float(latent) - degenerate) > 1e-6
+
+
+def test_masked_latent_objective_produces_nonzero_student_gradients():
+    module = _gradient_module()
+    total, _ = module._losses(_gradient_batch())
+
+    module.zero_grad(set_to_none=True)
+    total.backward()
+
+    gradients = [p.grad for p in module.student.parameters() if p.grad is not None]
+    assert gradients, "objective must reach the student parameters"
+    assert sum(float(g.abs().sum()) for g in gradients) > 0.0
+
+
+def test_mask_token_is_learned_and_receives_gradient():
+    module = _gradient_module()
+    total, _ = module._losses(_gradient_batch())
+
+    module.zero_grad(set_to_none=True)
+    total.backward()
+
+    assert module.student.mask_token.grad is not None
+    assert float(module.student.mask_token.grad.abs().sum()) > 0.0
+
+
+def test_masked_tokens_keep_a_nonzero_output_inside_the_encoder():
+    """A masked token must stay observed, so the loss can read a live activation."""
+    module = _gradient_module()
+    module.eval()
+    hidden = torch.zeros(4, 16, 2, dtype=torch.bool)
+    hidden[:, 0, 0] = True
+
+    with torch.no_grad():
+        outputs = module.student(
+            _gradient_batch()["emg"],
+            observation_mask=torch.ones(4, 80, 16, dtype=torch.bool),
+            patch_mask=hidden,
+        )
+
+    assert float(outputs["z_eq"][hidden].abs().sum()) > 0.0
+
+
+def test_one_optimizer_step_moves_student_parameters_without_weight_decay():
+    module = _gradient_module()
+    module.train()
+    batch = _gradient_batch()
+    optimizer = torch.optim.AdamW(module.student.parameters(), lr=1e-2, weight_decay=0.0)
+    before = {name: value.detach().clone() for name, value in module.student.state_dict().items()}
+
+    optimizer.zero_grad(set_to_none=True)
+    total, _ = module._losses(batch)
+    total.backward()
+    optimizer.step()
+
+    changed = [
+        name
+        for name, value in module.student.state_dict().items()
+        if not torch.equal(value.detach(), before[name])
+    ]
+    assert changed, "a single optimizer step must change student parameters"

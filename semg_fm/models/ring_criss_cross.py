@@ -106,6 +106,13 @@ class RingCrissCrossEncoder(nn.Module):
             RingCrissCrossBlock(d_model, heads, channels=channels)
             for _ in range(depth)
         )
+        # Learnable placeholder for tokens the model must predict rather than
+        # read.  It is shared across electrodes, so it carries no channel index
+        # and the encoder stays equivariant under circular shifts.  Keeping it
+        # distinct from the observation mask is what makes masked-latent
+        # distillation possible: a masked token stays *observed* (it attends and
+        # keeps a non-zero output) while its content is replaced.
+        self.mask_token = nn.Parameter(torch.zeros(d_model))
 
     def forward(
         self,
@@ -114,6 +121,7 @@ class RingCrissCrossEncoder(nn.Module):
         *,
         observation_mask: torch.Tensor | None = None,
         electrode_observation_mask: torch.Tensor | None = None,
+        patch_mask: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         """Return ``z_eq`` [B, C, N, D] and masked-mean ``z_motion`` [B, N, D].
 
@@ -122,6 +130,13 @@ class RingCrissCrossEncoder(nn.Module):
         and patch masks are broadcast to input samples.  A sample mask makes a
         patch valid when at least one sample in that patch is observed; masked
         samples are zeroed before patch encoding in every case.
+
+        ``patch_mask`` [B, C, N] marks tokens the model should *predict*.  Those
+        tokens stay observed -- they attend and are attended to, and their output
+        stays non-zero -- but their patch embedding is replaced by the learnable
+        ``mask_token``.  Pass ``patch_mask`` only together with an observation
+        mask that marks the same positions observed, otherwise the observation
+        mask wins and the output is zeroed.
         """
         masks = [
             mask
@@ -145,6 +160,14 @@ class RingCrissCrossEncoder(nn.Module):
         masked_emg = emg * sample_observed.to(emg.dtype)
         channel_major = masked_emg.transpose(1, 2).reshape(batch * channels, samples, 1)
         tokens = self.patch_encoder(channel_major).reshape(batch, channels, patches, self.d_model)
+        if patch_mask is not None:
+            if patch_mask.dtype is not torch.bool or patch_mask.shape != (batch, channels, patches):
+                raise ValueError("patch_mask must be boolean with shape [batch, channels, patches]")
+            tokens = torch.where(
+                patch_mask.to(device=tokens.device).unsqueeze(-1),
+                self.mask_token.to(tokens.dtype).view(1, 1, 1, self.d_model),
+                tokens,
+            )
         for block in self.blocks:
             tokens = block(tokens, electrode_observed=observed)
 

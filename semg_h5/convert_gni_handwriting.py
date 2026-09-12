@@ -5,8 +5,27 @@ import csv
 from contextlib import contextmanager
 import hashlib
 import json
-import msvcrt
 import os
+
+if os.name == "nt":
+    import msvcrt
+
+    def _try_lock(handle) -> None:
+        """Take an OS-released advisory lock, raising OSError while it is held."""
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+
+    def _unlock(handle) -> None:
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    def _try_lock(handle) -> None:
+        """Take an OS-released advisory lock, raising OSError while it is held."""
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _unlock(handle) -> None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
 from pathlib import Path
 import time
 from typing import Any
@@ -43,7 +62,7 @@ def _acquire_manifest_lock(path: Path):
         deadline = time.monotonic() + 10.0
         while True:
             try:
-                handle.seek(0); msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1); return handle
+                handle.seek(0); _try_lock(handle); return handle
             except OSError:
                 if time.monotonic() >= deadline: raise TimeoutError(f"Timed out waiting for manifest lock: {lock}")
                 time.sleep(0.05)
@@ -53,7 +72,7 @@ def _acquire_manifest_lock(path: Path):
 
 def _release_manifest_lock(handle) -> None:
     try:
-        handle.seek(0); msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        handle.seek(0); _unlock(handle)
     finally:
         handle.close()
 

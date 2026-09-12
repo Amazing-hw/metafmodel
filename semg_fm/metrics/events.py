@@ -9,6 +9,17 @@ from collections.abc import Sequence
 Event = tuple[str, float]
 
 
+def event_f1_from_counts(true_positive: float, false_positive: float, false_negative: float) -> float:
+    """F1 from accumulated one-to-one match counts.
+
+    This is ``2*TP / (2*TP + FP + FN)``, the harmonic mean of precision and
+    recall.  The superficially similar ``2*TP / (TP + FP + FN)`` is not F1 and
+    can exceed 1.0, so callers must share this helper rather than open-code it.
+    """
+    denominator = 2.0 * true_positive + false_positive + false_negative
+    return 2.0 * true_positive / denominator if denominator > 0 else 0.0
+
+
 def event_f1(predicted: Sequence[Event], reference: Sequence[Event], *, tolerance_s: float) -> dict[str, float | int]:
     """Compute label-aware greedy event F1 with one-to-one tolerance matching.
 
