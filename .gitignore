@@ -19,3 +19,6 @@ checkpoints/
 
 # 第三方 sEMG 数据集原始文件（245 GB，CC BY-NC-SA / CC BY-NC 许可，禁止入库与再分发）
 emg_data/
+
+# 由 emg_data/ 转换出的 canonical H5（体积随源数据同量级）
+emg_data_canonical/

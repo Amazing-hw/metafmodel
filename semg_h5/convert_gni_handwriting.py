@@ -111,6 +111,23 @@ def _finite_float(value: Any, label: str) -> float:
     return number
 
 
+def _record_subject(path: Path, metadata: dict[str, Any]) -> str:
+    """Identify a subject from the file name when the release omits metadata.
+
+    The public GNI drop carries only ``data.attrs['task']``; identity lives in
+    the name, ``{task}_user_{NNN}_dataset_{MMM}.hdf5``.  Falling back to the
+    parent directory gives every subject in a corpus the same id, which would
+    collapse leakage-safe subject grouping into a single group.
+    """
+    declared = str(metadata.get("subject_id", "")).strip()
+    if declared:
+        return declared
+    stem = path.stem
+    if "_user_" in stem:
+        return f"user_{stem.split('_user_', 1)[1].split('_', 1)[0]}"
+    return path.parent.name
+
+
 def _read_gni(path: str | Path, official_split: str) -> dict[str, Any]:
     path = Path(path)
     with h5py.File(path, "r") as h5:
@@ -136,7 +153,7 @@ def _read_gni(path: str | Path, official_split: str) -> dict[str, Any]:
         prompts.append({"text": str(_required(row, ("prompt", "text"), "handwriting prompt")), "start_s": start - origin, "end_s": end - origin})
     labels: dict[str, Any] = {"prompts": prompts}
     if len(stages) == 1 and "stage" in stages[0]: labels["stage"] = stages[0]["stage"]
-    return {"dataset_id": DATASET_ID, "task_id": TASK_ID, "subject_id": f"{DATASET_ID}:{metadata.get('subject_id', path.parent.name)}", "session_id": f"{DATASET_ID}:{metadata.get('session_id', path.stem)}", "side": str(metadata.get("side", "dominant")), "pair_id": "", "official_split": official_split, "source_file": path.name, "source_path": str(path.resolve()), "emg": emg, "time_s": time_s, "labels": labels, "source_meta": {"source_dataset": "data", "emg_field": emg_field, "attributes": metadata, "source_time_origin_s": origin, "prompts": prompt_rows, "stages": stages}, "preprocessing": {"converter_transformations": ["time_s shifted to record-relative origin"]}}
+    return {"dataset_id": DATASET_ID, "task_id": TASK_ID, "subject_id": f"{DATASET_ID}:{_record_subject(path, metadata)}", "session_id": f"{DATASET_ID}:{metadata.get('session_id', path.stem)}", "side": str(metadata.get("side", "dominant")), "pair_id": "", "official_split": official_split, "source_file": path.name, "source_path": str(path.resolve()), "emg": emg, "time_s": time_s, "labels": labels, "source_meta": {"source_dataset": "data", "emg_field": emg_field, "attributes": metadata, "source_time_origin_s": origin, "prompts": prompt_rows, "stages": stages}, "preprocessing": {"converter_transformations": ["time_s shifted to record-relative origin"]}}
 
 
 def _safe(value: str) -> str:
