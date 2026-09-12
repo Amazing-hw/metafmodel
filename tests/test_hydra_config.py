@@ -44,6 +44,12 @@ def test_cpu_smoke_profile_disables_distributed_training():
     assert cfg.trainer.strategy == "auto"
 
 
+def test_a100_profile_disables_rich_progress_for_windows_console():
+    with initialize_config_dir(version_base="1.3", config_dir=CONFIG_DIR):
+        cfg = compose(config_name="pretrain")
+    assert cfg.trainer.get("enable_progress_bar", True) is False
+
+
 def test_pretrain_default_declares_a_null_data_root_that_accepts_an_override():
     with initialize_config_dir(version_base="1.3", config_dir=CONFIG_DIR):
         default = compose(config_name="pretrain")

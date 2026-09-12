@@ -34,8 +34,10 @@ def _trainer(**overrides):
         accelerator="cpu",
         devices=1,
         logger=False,
-        enable_checkpointing=False,
+        callbacks=[],
+        enable_checkpointing=True,
         enable_model_summary=False,
+        enable_progress_bar=False,
         **overrides,
     )
 

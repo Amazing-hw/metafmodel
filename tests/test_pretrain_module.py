@@ -51,6 +51,7 @@ def _trainer() -> Trainer:
         logger=False,
         enable_checkpointing=False,
         enable_model_summary=False,
+        enable_progress_bar=False,
     )
 
 
@@ -61,6 +62,7 @@ def _validation_trainer() -> Trainer:
         logger=False,
         enable_checkpointing=False,
         enable_model_summary=False,
+        enable_progress_bar=False,
     )
 
 

@@ -42,6 +42,7 @@ def test_circe_pretraining_fast_dev_run_advances_one_global_step():
         logger=False,
         enable_checkpointing=False,
         enable_model_summary=False,
+        enable_progress_bar=False,
     )
 
     trainer.fit(module, train_dataloaders=DataLoader(_SyntheticDataset(), batch_size=2, collate_fn=_collate))

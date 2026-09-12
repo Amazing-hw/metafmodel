@@ -147,6 +147,7 @@ def test_trainer_test_loop_logs_the_primary_metric(canonical_meta_root):
         logger=False,
         enable_checkpointing=False,
         enable_model_summary=False,
+        enable_progress_bar=False,
     )
 
     trainer.test(module, dataloaders=DataLoader(dataset, batch_size=2, collate_fn=task_homogeneous_collate))
