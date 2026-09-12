@@ -189,3 +189,31 @@ def test_gni_converter_recovers_subject_identity_from_the_release_file_name(tmp_
     assert row_one["subject_id"].endswith("user_007")
     assert row_two["subject_id"].endswith("user_008")
     assert row_one["subject_id"] != row_two["subject_id"]
+
+
+@pytest.mark.parametrize("converter_name", GNI_CONVERTERS)
+def test_gni_conversion_discovers_hdf5_sources_and_rejects_an_empty_root(tmp_path, converter_name):
+    """The released corpora ship ``*.hdf5``; globbing only ``*.h5`` converted nothing.
+
+    A full-corpus run matched zero files and still exited 0, so the failure was
+    invisible until the output directory was inspected.
+    """
+    task, prefix = _GNI_TASK_AND_PREFIX[converter_name]
+    source_dir = tmp_path / "release"
+    source_dir.mkdir()
+    targets = [("flexion_extension", np.float32)] if task == "wrist" else ()
+    _write_gni_source(
+        source_dir / f"{prefix}_user_000_dataset_000.hdf5", task,
+        target_fields=targets, sample_count=8,
+    )
+    converter = _load_converter(converter_name)
+
+    rows = converter.run_conversion(source_dir, tmp_path / "out")
+
+    assert len(rows) == 1
+    assert rows[0]["source_file"].endswith(".hdf5")
+
+    empty_root = tmp_path / "empty"
+    empty_root.mkdir()
+    with pytest.raises(ValueError, match="no .h5 or .hdf5"):
+        converter.run_conversion(empty_root, tmp_path / "out_empty")

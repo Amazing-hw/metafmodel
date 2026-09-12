@@ -219,6 +219,23 @@ def convert_file(source_path: str | Path, output_root: str | Path, *, official_s
     record = _read_gni(source_path, official_split); record["source_file"] = source_file or Path(source_path).name; relative = _relative(record); _write(Path(output_root) / relative, record, overwrite=overwrite); return _manifest(record, relative)
 
 
+def _source_files(input_root: Path) -> list[Path]:
+    """List convertible source files under ``input_root``.
+
+    The released corpora use both ``.h5`` (emg2pose, emg2qwerty) and ``.hdf5``
+    (the GNI drop).  Globbing only ``*.h5`` matched nothing on the GNI corpora
+    and the run reported success after converting zero records.
+    """
+    sources = sorted(
+        path
+        for path in input_root.rglob("*")
+        if path.is_file() and path.suffix in {".h5", ".hdf5"}
+    )
+    if not sources:
+        raise ValueError(f"no .h5 or .hdf5 source files found under {input_root}")
+    return sources
+
+
 def run_conversion(input_root: str | Path, output_root: str | Path, *, split: str | None = None, splits_csv: str | Path | None = None, overwrite: bool = False) -> list[dict[str, object]]:
     input_root, output_root, lookup = Path(input_root), Path(output_root), _splits(splits_csv); results = []
     try:
@@ -227,7 +244,7 @@ def run_conversion(input_root: str | Path, output_root: str | Path, *, split: st
         pass
     else:
         raise ValueError("output-root must not be nested under input-root")
-    for source in sorted(input_root.rglob("*.h5")):
+    for source in _source_files(input_root):
         official_split = lookup.get(source.relative_to(input_root).as_posix(), lookup.get(source.name, "unknown"))
         if split is None or official_split == split:
             row = convert_file(source, output_root, official_split=official_split, overwrite=overwrite, source_file=source.relative_to(input_root).as_posix()); _append(output_root / "manifest.csv", row); results.append(row)
