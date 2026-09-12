@@ -157,3 +157,63 @@ def test_gni_labelled_tasks_require_finite_source_rows(tmp_path, converter_name,
     _write_gni_source(invalid, task, prompt_rows=rows)
     with pytest.raises(ValueError, match="finite|start"):
         converter.convert_file(invalid, tmp_path / "out")
+
+
+_GNI_TASK_AND_PREFIX = {
+    "convert_gni_discrete_gestures": ("discrete_gestures", "discrete_gestures"),
+    "convert_gni_handwriting": ("handwriting", "handwriting"),
+    "convert_gni_wrist": ("wrist", "wrist"),
+}
+
+
+@pytest.mark.parametrize("converter_name", GNI_CONVERTERS)
+def test_gni_converter_recovers_subject_identity_from_the_release_file_name(tmp_path, converter_name):
+    """The public drop carries only ``data.attrs['task']``; identity is in the name.
+
+    Reading the parent directory instead gave every subject in a corpus the same
+    id, which collapsed leakage-safe subject grouping into a single group.
+    """
+    task, prefix = _GNI_TASK_AND_PREFIX[converter_name]
+    source_dir = tmp_path / "GNI_release"
+    source_dir.mkdir()
+    first = source_dir / f"{prefix}_user_007_dataset_000.hdf5"
+    second = source_dir / f"{prefix}_user_008_dataset_000.hdf5"
+    targets = [("flexion_extension", np.float32)] if task == "wrist" else ()
+    _write_gni_source(first, task, target_fields=targets, sample_count=8)
+    _write_gni_source(second, task, target_fields=targets, sample_count=8)
+    converter = _load_converter(converter_name)
+
+    row_one = converter.convert_file(first, tmp_path / "out")
+    row_two = converter.convert_file(second, tmp_path / "out")
+
+    assert row_one["subject_id"].endswith("user_007")
+    assert row_two["subject_id"].endswith("user_008")
+    assert row_one["subject_id"] != row_two["subject_id"]
+
+
+@pytest.mark.parametrize("converter_name", GNI_CONVERTERS)
+def test_gni_conversion_discovers_hdf5_sources_and_rejects_an_empty_root(tmp_path, converter_name):
+    """The released corpora ship ``*.hdf5``; globbing only ``*.h5`` converted nothing.
+
+    A full-corpus run matched zero files and still exited 0, so the failure was
+    invisible until the output directory was inspected.
+    """
+    task, prefix = _GNI_TASK_AND_PREFIX[converter_name]
+    source_dir = tmp_path / "release"
+    source_dir.mkdir()
+    targets = [("flexion_extension", np.float32)] if task == "wrist" else ()
+    _write_gni_source(
+        source_dir / f"{prefix}_user_000_dataset_000.hdf5", task,
+        target_fields=targets, sample_count=8,
+    )
+    converter = _load_converter(converter_name)
+
+    rows = converter.run_conversion(source_dir, tmp_path / "out")
+
+    assert len(rows) == 1
+    assert rows[0]["source_file"].endswith(".hdf5")
+
+    empty_root = tmp_path / "empty"
+    empty_root.mkdir()
+    with pytest.raises(ValueError, match="no .h5 or .hdf5"):
+        converter.run_conversion(empty_root, tmp_path / "out_empty")

@@ -213,6 +213,23 @@ def _finite_float(value: Any, label: str) -> float:
     return number
 
 
+def _record_subject(path: Path, metadata: dict[str, Any]) -> str:
+    """Identify a subject from the file name when the release omits metadata.
+
+    The public GNI drop carries only ``data.attrs['task']``; identity lives in
+    the name, ``{task}_user_{NNN}_dataset_{MMM}.hdf5``.  Falling back to the
+    parent directory gives every subject in a corpus the same id, which would
+    collapse leakage-safe subject grouping into a single group.
+    """
+    declared = str(metadata.get("subject_id", "")).strip()
+    if declared:
+        return declared
+    stem = path.stem
+    if "_user_" in stem:
+        return f"user_{stem.split('_user_', 1)[1].split('_', 1)[0]}"
+    return path.parent.name
+
+
 def _read_gni(path: str | Path, official_split: str) -> CanonicalRecord:
     path = Path(path)
     with h5py.File(path, "r") as h5:
@@ -247,7 +264,7 @@ def _read_gni(path: str | Path, official_split: str) -> CanonicalRecord:
         labels: dict[str, Any] = {"events": [{"name": str(_required_value(row, ("name", "gesture"), "gesture")), "time_s": _finite_float(_required_value(row, ("time", "time_s"), "gesture"), "gesture time") - origin} for row in prompt_rows]}
         if len(stages) == 1 and "stage" in stages[0]:
             labels["stage"] = stages[0]["stage"]
-        subject_raw = str(metadata.get("subject_id", path.parent.name))
+        subject_raw = _record_subject(path, metadata)
         session_raw = str(metadata.get("session_id", path.stem))
         return CanonicalRecord(DATASET_ID, TASK_ID, f"{DATASET_ID}:{subject_raw}", f"{DATASET_ID}:{session_raw}", str(metadata.get("side", "dominant")), "", official_split, path.name, str(path.resolve()), emg, time_s, labels, {"source_dataset": "data", "emg_field": emg_field, "attributes": metadata, "source_time_origin_s": origin, "prompts": prompt_rows, "events": prompt_rows, "stages": stages}, {"converter_transformations": ["time_s shifted to record-relative origin"]})
 
@@ -319,6 +336,23 @@ def convert_file(source_path: str | Path, output_root: str | Path, *, official_s
     return _manifest_row(record, relative_path)
 
 
+def _source_files(input_root: Path) -> list[Path]:
+    """List convertible source files under ``input_root``.
+
+    The released corpora use both ``.h5`` (emg2pose, emg2qwerty) and ``.hdf5``
+    (the GNI drop).  Globbing only ``*.h5`` matched nothing on the GNI corpora
+    and the run reported success after converting zero records.
+    """
+    sources = sorted(
+        path
+        for path in input_root.rglob("*")
+        if path.is_file() and path.suffix in {".h5", ".hdf5"}
+    )
+    if not sources:
+        raise ValueError(f"no .h5 or .hdf5 source files found under {input_root}")
+    return sources
+
+
 def run_conversion(input_root: str | Path, output_root: str | Path, *, split: str | None = None, splits_csv: str | Path | None = None, overwrite: bool = False) -> list[dict[str, object]]:
     input_root, output_root = Path(input_root), Path(output_root)
     try:
@@ -329,7 +363,7 @@ def run_conversion(input_root: str | Path, output_root: str | Path, *, split: st
         raise ValueError("output-root must not be nested under input-root")
     lookup = _split_lookup(splits_csv)
     rows: list[dict[str, object]] = []
-    for source_path in sorted(input_root.rglob("*.h5")):
+    for source_path in _source_files(input_root):
         relative_source = source_path.relative_to(input_root).as_posix()
         official_split = lookup.get(relative_source, lookup.get(source_path.name, "unknown"))
         if split is not None and official_split != split:

@@ -318,6 +318,23 @@ def _split_lookup(csv_path: str | Path | None) -> dict[str, str]:
         return {str(row[key_column]).replace("\\", "/"): str(row["split"]) for row in rows}
 
 
+def _source_files(input_root: Path) -> list[Path]:
+    """List convertible source files under ``input_root``.
+
+    The released corpora use both ``.h5`` (emg2pose, emg2qwerty) and ``.hdf5``
+    (the GNI drop).  Globbing only ``*.h5`` matched nothing on the GNI corpora
+    and the run reported success after converting zero records.
+    """
+    sources = sorted(
+        path
+        for path in input_root.rglob("*")
+        if path.is_file() and path.suffix in {".h5", ".hdf5"}
+    )
+    if not sources:
+        raise ValueError(f"no .h5 or .hdf5 source files found under {input_root}")
+    return sources
+
+
 def run_conversion(input_root: str | Path, output_root: str | Path, *, split: str | None = None, splits_csv: str | Path | None = None, overwrite: bool = False) -> list[dict[str, object]]:
     input_root, output_root = Path(input_root), Path(output_root)
     try:
@@ -328,7 +345,7 @@ def run_conversion(input_root: str | Path, output_root: str | Path, *, split: st
         raise ValueError("output-root must not be nested under input-root")
     lookup = _split_lookup(splits_csv)
     rows: list[dict[str, object]] = []
-    for source_path in sorted(input_root.rglob("*.h5")):
+    for source_path in _source_files(input_root):
         relative_source = source_path.relative_to(input_root).as_posix()
         official_split = lookup.get(relative_source, lookup.get(source_path.name, "unknown"))
         if split is not None and official_split != split:
