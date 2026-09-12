@@ -13,12 +13,12 @@
 ### 任务 1：构建经过核验的来源 manifest
 
 **文件：**
-- 新建：`C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\sources.md`
-- 新建：`C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\source-notes.txt`
+- 新建：`D:\Fmodel\deliverables\physio_fm_ppt\sources.md`
+- 新建：`D:\Fmodel\deliverables\physio_fm_ppt\source-notes.txt`
 
 - [ ] **步骤 1：为 17 篇选定论文各建一条记录**
 
-使用 `C:\Users\User\Documents\F_model\docs\superpowers\specs\2026-09-02-physiological-timeseries-foundation-models-ppt-design.md` 中的固定论文池。每条记录需包含标题、会议/年份、模态、数据规模、tokenizer/表示、backbone、目标函数、评测、可借鉴点，以及一个官方来源 URL。把 `Biosignal Fingerprinting / M2AE` 标注为预印本。
+使用 `D:\Fmodel\docs\superpowers\specs\2026-09-02-physiological-timeseries-foundation-models-ppt-design.md` 中的固定论文池。每条记录需包含标题、会议/年份、模态、数据规模、tokenizer/表示、backbone、目标函数、评测、可借鉴点，以及一个官方来源 URL。把 `Biosignal Fingerprinting / M2AE` 标注为预印本。
 
 - [ ] **步骤 2：把所有来源 URL 记录到交付溯源文件中**
 
@@ -33,7 +33,7 @@ LaBraM | ICLR 2024 | https://proceedings.iclr.cc/paper_files/paper/2024/hash/473
 运行：
 
 ```powershell
-(Select-String -Path 'C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\sources.md' -Pattern '^## ').Count
+(Select-String -Path 'D:\Fmodel\deliverables\physio_fm_ppt\sources.md' -Pattern '^## ').Count
 ```
 
 预期：`17`。
@@ -41,7 +41,7 @@ LaBraM | ICLR 2024 | https://proceedings.iclr.cc/paper_files/paper/2024/hash/473
 ### 任务 2：撰写结构化解读内容与讲者备注文案
 
 **文件：**
-- 新建：`C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\paper_records.js`
+- 新建：`D:\Fmodel\deliverables\physio_fm_ppt\paper_records.js`
 
 - [ ] **步骤 1：定义论文记录 schema**
 
@@ -84,8 +84,8 @@ LaBraM | ICLR 2024 | https://proceedings.iclr.cc/paper_files/paper/2024/hash/473
 ### 任务 3：生成 PowerPoint 演示文稿
 
 **文件：**
-- 新建：`C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\build_deck.mjs`
-- 新建：`C:\Users\User\Documents\F_model\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx`
+- 新建：`D:\Fmodel\deliverables\physio_fm_ppt\build_deck.mjs`
+- 新建：`D:\Fmodel\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx`
 
 - [ ] **步骤 1：加载内置 artifact 运行时并启动 artifact 操作**
 
@@ -110,23 +110,23 @@ LaBraM | ICLR 2024 | https://proceedings.iclr.cc/paper_files/paper/2024/hash/473
 运行：
 
 ```powershell
-& $env:RUNTIME_NODE 'C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\build_deck.mjs'
+& $env:RUNTIME_NODE 'D:\Fmodel\deliverables\physio_fm_ppt\build_deck.mjs'
 ```
 
-预期：在 `C:\Users\User\Documents\F_model\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx` 生成 60–66 页的 PPTX。
+预期：在 `D:\Fmodel\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx` 生成 60–66 页的 PPTX。
 
 ### 任务 4：渲染、检查并修正演示文稿
 
 **文件：**
-- 新建：`C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\rendered\`
-- 新建：`C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\slides_test_report.txt`
+- 新建：`D:\Fmodel\deliverables\physio_fm_ppt\rendered\`
+- 新建：`D:\Fmodel\deliverables\physio_fm_ppt\slides_test_report.txt`
 
 - [ ] **步骤 1：运行幻灯片结构检查**
 
 运行：
 
 ```powershell
-python 'C:\Users\User\.codex\plugins\cache\openai-primary-runtime\presentations\26.813.12317\skills\presentations\scripts\slides_test.py' 'C:\Users\User\Documents\F_model\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx'
+python 'C:\Users\User\.codex\plugins\cache\openai-primary-runtime\presentations\26.813.12317\skills\presentations\scripts\slides_test.py' 'D:\Fmodel\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx'
 ```
 
 预期：无文本溢出或无效幻灯片错误。
@@ -136,7 +136,7 @@ python 'C:\Users\User\.codex\plugins\cache\openai-primary-runtime\presentations\
 运行：
 
 ```powershell
-python 'C:\Users\User\.codex\plugins\cache\openai-primary-runtime\presentations\26.813.12317\skills\presentations\scripts\render_slides.py' 'C:\Users\User\Documents\F_model\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx' --output_dir 'C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\rendered'
+python 'C:\Users\User\.codex\plugins\cache\openai-primary-runtime\presentations\26.813.12317\skills\presentations\scripts\render_slides.py' 'D:\Fmodel\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx' --output_dir 'D:\Fmodel\deliverables\physio_fm_ppt\rendered'
 ```
 
 检查拼图和每一页幻灯片图像。在 `build_deck.mjs` 中修正裁切、对比度不足、非预期重叠和留白失衡问题，然后重新生成并重复检查，直到全部通过。
@@ -148,15 +148,15 @@ python 'C:\Users\User\.codex\plugins\cache\openai-primary-runtime\presentations\
 ### 任务 5：交付经过核验的成果物
 
 **文件：**
-- 修改：`C:\Users\User\Documents\F_model\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx`
-- 修改：`C:\Users\User\Documents\F_model\deliverables\physio_fm_ppt\slides_test_report.txt`
+- 修改：`D:\Fmodel\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx`
+- 修改：`D:\Fmodel\deliverables\physio_fm_ppt\slides_test_report.txt`
 
 - [ ] **步骤 1：确认最终产物存在且非空**
 
 运行：
 
 ```powershell
-Get-Item 'C:\Users\User\Documents\F_model\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx' | Select-Object Name,Length,LastWriteTime
+Get-Item 'D:\Fmodel\deliverables\生理时序基座模型顶会论文深读_2026-09.pptx' | Select-Object Name,Length,LastWriteTime
 ```
 
 预期：`Length` 大于零。
