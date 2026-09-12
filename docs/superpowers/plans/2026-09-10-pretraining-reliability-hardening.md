@@ -68,7 +68,7 @@ def test_pretrain_module_uses_resolved_training_mappings():
 
 - [ ] **Step 2: Run the focused tests and verify they fail**
 
-Run: `python -m pytest -q tests/test_hydra_config.py::test_pretrain_config_declares_all_optimized_objective_controls tests/test_pretrain_entry.py::test_pretrain_module_uses_resolved_training_mappings --basetemp=C:\Users\User\Documents\F_model\.pytest_tmp_review`
+Run: `python -m pytest -q tests/test_hydra_config.py::test_pretrain_config_declares_all_optimized_objective_controls tests/test_pretrain_entry.py::test_pretrain_module_uses_resolved_training_mappings --basetemp=D:\Fmodel\.pytest_tmp_review`
 
 Expected: FAIL because `objective`, `optimizer`, `mask`, and `build_pretrain_module` do not exist.
 
@@ -102,7 +102,7 @@ Replace the inline module construction in `main` with this helper.
 
 - [ ] **Step 4: Run the focused tests and verify they pass**
 
-Run: `python -m pytest -q tests/test_hydra_config.py::test_pretrain_config_declares_all_optimized_objective_controls tests/test_pretrain_entry.py::test_pretrain_module_uses_resolved_training_mappings --basetemp=C:\Users\User\Documents\F_model\.pytest_tmp_review`
+Run: `python -m pytest -q tests/test_hydra_config.py::test_pretrain_config_declares_all_optimized_objective_controls tests/test_pretrain_entry.py::test_pretrain_module_uses_resolved_training_mappings --basetemp=D:\Fmodel\.pytest_tmp_review`
 
 Expected: PASS.
 
@@ -135,7 +135,7 @@ def test_ring_equivariance_is_a_detached_diagnostic_not_an_optimized_loss():
 
 - [ ] **Step 2: Run the focused test and verify it fails**
 
-Run: `python -m pytest -q tests/test_pretrain_module.py::test_ring_equivariance_is_a_detached_diagnostic_not_an_optimized_loss --basetemp=C:\Users\User\Documents\F_model\.pytest_tmp_review`
+Run: `python -m pytest -q tests/test_pretrain_module.py::test_ring_equivariance_is_a_detached_diagnostic_not_an_optimized_loss --basetemp=D:\Fmodel\.pytest_tmp_review`
 
 Expected: FAIL because the current losses contain `ring` and include it in `total`.
 
@@ -160,7 +160,7 @@ model, same-model rotation targets are redundant.
 
 - [ ] **Step 4: Run module and objective tests**
 
-Run: `python -m pytest -q tests/test_pretrain_module.py tests/test_pretrain_objectives.py --basetemp=C:\Users\User\Documents\F_model\.pytest_tmp_review`
+Run: `python -m pytest -q tests/test_pretrain_module.py tests/test_pretrain_objectives.py --basetemp=D:\Fmodel\.pytest_tmp_review`
 
 Expected: PASS.
 
@@ -195,7 +195,7 @@ def test_pretraining_docs_limit_deterministic_resume_to_epoch_boundaries():
 
 - [ ] **Step 2: Run the documentation test and verify it fails**
 
-Run: `python -m pytest -q tests/test_documented_commands.py::test_pretraining_docs_limit_deterministic_resume_to_epoch_boundaries --basetemp=C:\Users\User\Documents\F_model\.pytest_tmp_review`
+Run: `python -m pytest -q tests/test_documented_commands.py::test_pretraining_docs_limit_deterministic_resume_to_epoch_boundaries --basetemp=D:\Fmodel\.pytest_tmp_review`
 
 Expected: FAIL because current documentation promises deterministic mid-epoch replay.
 
@@ -209,11 +209,11 @@ checkpoints. In `SERVER_A100.md`, use the same wording and identify
 
 - [ ] **Step 4: Run docs tests and full regression**
 
-Run: `python -m pytest -q tests/test_documented_commands.py --basetemp=C:\Users\User\Documents\F_model\.pytest_tmp_review`
+Run: `python -m pytest -q tests/test_documented_commands.py --basetemp=D:\Fmodel\.pytest_tmp_review`
 
 Expected: PASS.
 
-Run: `python -m pytest -q --basetemp=C:\Users\User\Documents\F_model\.pytest_tmp_review -o cache_dir=C:\Users\User\Documents\F_model\.pytest_cache_review`
+Run: `python -m pytest -q --basetemp=D:\Fmodel\.pytest_tmp_review -o cache_dir=D:\Fmodel\.pytest_cache_review`
 
 Expected: all tests pass; known Lightning informational warnings do not fail the suite.
 
