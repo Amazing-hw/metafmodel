@@ -1,39 +1,39 @@
-# Forearm Physiological Foundation Model Research Package Implementation Plan
+# 前臂生理基座模型研究包实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic workers：** 必需子技能（REQUIRED SUB-SKILL）：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实施本计划。步骤使用复选框语法（`- [ ]`）跟踪进度。
 
-**Goal:** Build a source-grounded Chinese research package that explains EEG and other physiological foundation models in depth and turns those lessons into a concrete forearm wearable physiological foundation model design.
+**目标：** 构建一个以原始文献为依据的中文研究包，深入讲解 EEG 及其他生理基座模型，并把其中的经验落实为具体的前臂可穿戴生理基座模型设计。
 
-**Architecture:** The package separates evidence collection from synthesis. A structured literature matrix and BibTeX file act as the evidence layer; eight focused Markdown documents consume that evidence and cross-link to one another. The recommended model is a muscle-centric, factorized multimodal encoder, with generic time-series models as baselines and discrete neuromuscular tokenization reserved for later work.
+**架构：** 研究包将证据收集与综合写作分离。结构化文献矩阵与 BibTeX 文件构成证据层；八份聚焦的 Markdown 文档消费这些证据，并相互交叉链接。推荐模型是肌肉中心、因子化的多模态编码器，以通用时间序列模型作为基线，离散神经肌肉 tokenization 留待后续工作。
 
-**Tech Stack:** Markdown, CSV, BibTeX, PowerShell validation, primary academic sources from publisher pages, proceedings, PubMed, arXiv and official repositories.
+**技术栈：** Markdown、CSV、BibTeX、PowerShell 校验，以及来自出版商页面、会议论文集、PubMed、arXiv 与官方仓库的一手学术来源。
 
 ---
 
-## File structure
+## 文件结构
 
-- `docs/research/README.md`: package index, reading paths and evidence-status legend.
-- `docs/research/00_研究地图与入门指南.md`: beginner map, terminology and recommended learning order.
-- `docs/research/01_EEG基座模型现状与方法.md`: EEG model taxonomy and detailed model comparisons.
-- `docs/research/02_其他生理与时间序列基座模型.md`: ECG, PPG, wearable multimodal and general time-series foundation models.
-- `docs/research/03_EMG与前臂感知研究现状.md`: EMG and non-EMG forearm sensing landscape.
-- `docs/research/04_公开数据集与可用资源.md`: datasets, licenses, modalities, labels and suitability.
-- `docs/research/05_前臂生理基座模型方案.md`: scientific framing, architecture, objectives and training stages.
-- `docs/research/06_评测基准与实验矩阵.md`: downstream tasks, split protocols, metrics, baselines and ablations.
-- `docs/research/07_分阶段研究路线图.md`: minimum viable study, paper-level study and long-term extensions.
-- `docs/research/literature_matrix.csv`: one row per verified work or dataset.
-- `docs/research/references.bib`: reference-manager-ready citations.
+- `docs/research/README.md`：研究包索引、阅读路径与证据状态图例。
+- `docs/research/00_研究地图与入门指南.md`：入门地图、术语与推荐学习顺序。
+- `docs/research/01_EEG基座模型现状与方法.md`：EEG 模型分类体系与详细的模型对比。
+- `docs/research/02_其他生理与时间序列基座模型.md`：ECG、PPG、可穿戴多模态与通用时间序列基座模型。
+- `docs/research/03_EMG与前臂感知研究现状.md`：EMG 与非 EMG 的前臂感知全景。
+- `docs/research/04_公开数据集与可用资源.md`：数据集、许可证、模态、标签与适用性。
+- `docs/research/05_前臂生理基座模型方案.md`：科学问题界定、架构、目标函数与训练阶段。
+- `docs/research/06_评测基准与实验矩阵.md`：下游任务、split 协议、指标、基线与消融。
+- `docs/research/07_分阶段研究路线图.md`：最小可行研究、论文级研究与长期扩展。
+- `docs/research/literature_matrix.csv`：每条经过核实的工作或数据集占一行。
+- `docs/research/references.bib`：可直接导入文献管理器的引文。
 
-Git commits in this plan must use the listed messages. The repository currently lacks author identity; do not invent one. Commit steps become executable after the user supplies a repository-local Git author name and email.
+本计划中的 git 提交必须使用所列出的提交信息。仓库当前缺少作者身份信息；不要自行编造。只有用户提供仓库本地 Git 作者姓名与邮箱之后，提交步骤才可执行。
 
-### Task 1: Establish the package contract and terminology ledger
+### 任务 1：确立研究包契约与术语台账
 
-**Files:**
-- Create: `docs/research/README.md`
+**文件：**
+- 新建：`docs/research/README.md`
 
-- [ ] **Step 1: Create the package index**
+- [ ] **步骤 1：创建研究包索引**
 
-Write `docs/research/README.md` with these sections:
+撰写 `docs/research/README.md`，包含以下章节：
 
 ```markdown
 # 前臂可穿戴生理基座模型研究包
@@ -67,59 +67,59 @@ Write `docs/research/README.md` with these sections:
 检索截止日期：2026-07-31。优先引用原始论文、正式出版页面、官方数据集页面和官方代码仓库。
 ```
 
-- [ ] **Step 2: Verify required sections and terms**
+- [ ] **步骤 2：校验必需章节与术语**
 
-Run:
+运行：
 
 ```powershell
 rg -n "研究范围|阅读路径|证据状态|术语表|检索边界|sEMG|HD-sEMG" docs/research/README.md
 ```
 
-Expected: every required section and both EMG terms appear at least once.
+预期：每个必需章节与两个 EMG 术语都至少出现一次。
 
-- [ ] **Step 3: Check Markdown whitespace**
+- [ ] **步骤 3：检查 Markdown 空白字符**
 
-Run:
+运行：
 
 ```powershell
 git diff --check -- docs/research/README.md
 ```
 
-Expected: no output.
+预期：无任何输出。
 
-- [ ] **Step 4: Commit the package contract**
+- [ ] **步骤 4：提交研究包契约**
 
 ```powershell
 git add -- docs/research/README.md
 git commit -m "docs: define physiological foundation model research package"
 ```
 
-### Task 2: Build the verified evidence layer
+### 任务 2：搭建经过核实的证据层
 
-**Files:**
-- Create: `docs/research/literature_matrix.csv`
-- Create: `docs/research/references.bib`
+**文件：**
+- 新建：`docs/research/literature_matrix.csv`
+- 新建：`docs/research/references.bib`
 
-- [ ] **Step 1: Create the literature matrix schema**
+- [ ] **步骤 1：创建文献矩阵表结构**
 
-Use this exact CSV header:
+使用这个精确的 CSV 表头：
 
 ```csv
 record_id,category,title,year,publication_status,venue,signal_modalities,pretraining_data,model_scale,input_representation,architecture,pretraining_objectives,adaptation_modes,downstream_tasks,generalization_axes,open_code,open_weights,primary_url,doi_or_identifier,key_contribution,key_limitation,relevance_to_forearm,last_verified
 ```
 
-Populate verified seed entries for the following groups:
+为下列分组填充经过核实的种子条目：
 
-- EEG: BENDR, BIOT, LaBraM, EEGPT, CBraMod and at least one 2026 EEG foundation-model benchmark.
-- Physiological/time series: Apple wearable PPG/ECG foundation models, PaPaGei and MOMENT.
-- EMG: Meta's generic non-invasive neuromotor interface, AEMG, emg2pose and emg2qwerty.
-- Forearm datasets: NinaPro, Hyser/HD-sEMG, HD-FW KIN and one repeated-session dataset.
+- EEG：BENDR、BIOT、LaBraM、EEGPT、CBraMod，以及至少一个 2026 年的 EEG 基座模型基准。
+- 生理/时间序列：Apple 可穿戴 PPG/ECG 基座模型、PaPaGei 与 MOMENT。
+- EMG：Meta 的通用非侵入式神经运动接口、AEMG、emg2pose 与 emg2qwerty。
+- 前臂数据集：NinaPro、Hyser/HD-sEMG、HD-FW KIN，以及一个重复会话数据集。
 
-For every row, verify the publication status and primary URL. Leave a genuinely unavailable metadata field empty rather than guessing.
+对每一行，核实发表状态与主 URL。确实无法获取的元数据字段留空，不要猜测填写。
 
-- [ ] **Step 2: Use reproducible search queries**
+- [ ] **步骤 2：使用可复现的检索式**
 
-Run source searches using these query families and record all retained sources in the matrix:
+按以下检索式族执行来源检索，并把所有保留的来源记录进矩阵：
 
 ```text
 "EEG foundation model" AND (pretraining OR benchmark OR generalization)
@@ -130,15 +130,15 @@ Run source searches using these query families and record all retained sources i
 (sEMG OR electromyography) AND (cross-subject OR cross-session OR electrode shift OR fatigue OR biometrics)
 ```
 
-Use publisher/proceedings/PubMed/arXiv pages as evidence. Use review articles for discovery only when the original paper is available.
+以出版商/会议论文集/PubMed/arXiv 页面作为证据。只有在原始论文可得时，才用综述文章做发现性检索。
 
-- [ ] **Step 3: Create verified BibTeX entries**
+- [ ] **步骤 3：创建经过核实的 BibTeX 条目**
 
-Create `docs/research/references.bib` with one entry for every paper cited in the Markdown package. Use DOI-based keys when practical, otherwise use stable `firstauthor_year_shorttitle` keys. Each entry must contain `title`, `author`, `year`, and either `doi`, `url`, or a stable proceedings identifier.
+创建 `docs/research/references.bib`，为 Markdown 研究包中引用的每篇论文各写一条条目。尽量使用基于 DOI 的键名，否则使用稳定的 `firstauthor_year_shorttitle` 键名。每条条目必须包含 `title`、`author`、`year`，以及 `doi`、`url` 或稳定的会议标识符三者之一。
 
-- [ ] **Step 4: Validate the matrix shape**
+- [ ] **步骤 4：校验矩阵结构**
 
-Run:
+运行：
 
 ```powershell
 $rows = Import-Csv docs/research/literature_matrix.csv
@@ -148,11 +148,11 @@ if ($missing.Count -gt 0) { throw "Missing columns: $($missing -join ', ')" }
 if ($rows.Count -lt 16) { throw "Expected at least 16 verified seed records; found $($rows.Count)" }
 ```
 
-Expected: no output and exit code 0.
+预期：无输出且退出码为 0。
 
-- [ ] **Step 5: Validate evidence completeness**
+- [ ] **步骤 5：校验证据完整性**
 
-Run:
+运行：
 
 ```powershell
 $rows = Import-Csv docs/research/literature_matrix.csv
@@ -160,42 +160,42 @@ $bad = $rows | Where-Object { -not $_.record_id -or -not $_.title -or -not $_.pu
 if ($bad.Count -gt 0) { $bad | Format-Table record_id,title; throw "Incomplete required evidence fields" }
 ```
 
-Expected: no incomplete rows.
+预期：没有字段不完整的行。
 
-- [ ] **Step 6: Validate BibTeX coverage**
+- [ ] **步骤 6：校验 BibTeX 覆盖度**
 
-Run:
+运行：
 
 ```powershell
 $entries = (rg -c '^@' docs/research/references.bib).Split(':')[-1]
 if ([int]$entries -lt 12) { throw "Expected at least 12 BibTeX entries; found $entries" }
 ```
 
-Expected: at least 12 entries.
+预期：至少 12 条条目。
 
-- [ ] **Step 7: Commit the evidence layer**
+- [ ] **步骤 7：提交证据层**
 
 ```powershell
 git add -- docs/research/literature_matrix.csv docs/research/references.bib
 git commit -m "docs: add verified biosignal foundation model evidence"
 ```
 
-### Task 3: Write the detailed EEG foundation-model review
+### 任务 3：撰写详细的 EEG 基座模型综述
 
-**Files:**
-- Create: `docs/research/01_EEG基座模型现状与方法.md`
+**文件：**
+- 新建：`docs/research/01_EEG基座模型现状与方法.md`
 
-- [ ] **Step 1: Draft the organizing argument**
+- [ ] **步骤 1：起草统领全文的论点**
 
-Open with this bounded argument:
+以如下限定范围的论点开篇：
 
 ```markdown
 EEG 基座模型的主要进展并非简单扩大参数规模，而是逐步解决跨数据集预训练中的格式异构：通道数量与位置不同、采样率和窗口长度不同、任务标签体系不同，以及信号噪声和缺失通道普遍存在。对前臂肌肉基座模型最有价值的经验，因此是输入统一、空间—时间建模、自监督目标与严格迁移评测，而不是照搬某个模型的规模。
 ```
 
-- [ ] **Step 2: Add the method taxonomy**
+- [ ] **步骤 2：补充方法分类体系**
 
-Create separate sections for:
+为下列内容分别建立独立章节：
 
 1. EEG 数据与格式异构。
 2. 原始波形、频谱和离散 token 表示。
@@ -204,352 +204,352 @@ Create separate sections for:
 5. 冻结探测、少样本适配、参数高效微调和完整微调。
 6. 跨数据集、跨受试者、跨通道布局和临床迁移评测。
 
-- [ ] **Step 3: Add detailed model profiles**
+- [ ] **步骤 3：补充详细的模型档案**
 
-For BENDR, BIOT, LaBraM, EEGPT and CBraMod, report:
+对 BENDR、BIOT、LaBraM、EEGPT 和 CBraMod，报告：
 
-- publication status and year;
-- input representation and channel handling;
-- backbone architecture;
-- pretraining corpus and objective;
-- adaptation protocol;
-- downstream task coverage;
-- open code/weights status;
-- strongest transferable idea;
-- principal limitation.
+- 发表状态与年份；
+- 输入表示与通道处理方式；
+- 骨干架构；
+- 预训练语料与目标函数；
+- 适配协议；
+- 下游任务覆盖范围；
+- 开源代码/权重状态；
+- 最具迁移价值的思路；
+- 主要局限。
 
-Include a comparison table whose rows are the five models and whose columns cover all nine fields above.
+附一张对比表，行是上述五个模型，列覆盖上述全部九个字段。
 
-- [ ] **Step 4: Add benchmark corrections to model claims**
+- [ ] **步骤 4：用基准结果修正模型宣称**
 
-Use primary 2026 benchmark sources to explain that frozen linear probes can understate or expose weak transfer, specialist models remain competitive, channel adaptation is architecture-dependent, and larger parameter counts do not guarantee better cross-subject generalization. Mark these as evidence-based cautions rather than universal laws.
+使用 2026 年的一手基准来源说明：冻结线性探针可能低估迁移能力、也可能暴露迁移薄弱；专用模型依然具备竞争力；通道适配依赖架构；参数量更大并不保证跨受试者泛化更好。将这些结论标注为基于证据的提醒，而非普遍规律。
 
-- [ ] **Step 5: End each topic with a forearm transfer lesson**
+- [ ] **步骤 5：每个主题以一条前臂迁移经验收尾**
 
-Add a final section named `## 对前臂肌肉基座模型的可迁移经验` covering:
+添加一个名为 `## 对前臂肌肉基座模型的可迁移经验` 的收尾章节，覆盖：
 
-- flexible channel tokenization;
-- explicit device and montage metadata;
-- spatial and temporal factorization;
-- mixed reconstruction, prediction and alignment objectives;
-- frozen, few-shot and full-finetuning evaluation;
-- comparison with compact specialist baselines.
+- 灵活的通道 tokenization；
+- 显式的设备与导联布局（montage）元数据；
+- 空间与时间因子化；
+- 重建、预测与对齐目标的混合；
+- 冻结、少样本与完整微调的评测；
+- 与紧凑专家基线的对比。
 
-- [ ] **Step 6: Verify coverage**
+- [ ] **步骤 6：校验覆盖情况**
 
-Run:
+运行：
 
 ```powershell
 rg -n "BENDR|BIOT|LaBraM|EEGPT|CBraMod|掩码|自回归|冻结探测|少样本|跨受试者|前臂" docs/research/01_EEG基座模型现状与方法.md
 ```
 
-Expected: every term appears in substantive prose or a comparison table.
+预期：每个术语都出现在实质性正文或对比表中。
 
-- [ ] **Step 7: Commit the EEG review**
+- [ ] **步骤 7：提交 EEG 综述**
 
 ```powershell
 git add -- docs/research/01_EEG基座模型现状与方法.md
 git commit -m "docs: review EEG foundation model methods"
 ```
 
-### Task 4: Review other physiological and time-series foundation models
+### 任务 4：综述其他生理与时间序列基座模型
 
-**Files:**
-- Create: `docs/research/02_其他生理与时间序列基座模型.md`
+**文件：**
+- 新建：`docs/research/02_其他生理与时间序列基座模型.md`
 
-- [ ] **Step 1: Structure the review by signal and modeling problem**
+- [ ] **步骤 1：按信号与建模问题组织综述**
 
-Use these sections:
+使用以下章节：
 
-- ECG foundation and self-supervised models.
-- PPG foundation models.
-- Wearable multimodal models.
-- General-purpose time-series foundation models.
-- Cross-modal transfer and missing-modality learning.
-- Lessons that do and do not transfer to forearm signals.
+- ECG 基座模型与自监督模型。
+- PPG 基座模型。
+- 可穿戴多模态模型。
+- 通用时间序列基座模型。
+- 跨模态迁移与缺失模态学习。
+- 可迁移与不可迁移到前臂信号的经验。
 
-- [ ] **Step 2: Compare representative systems**
+- [ ] **步骤 2：对比代表性系统**
 
-Include verified profiles for the Apple wearable PPG/ECG work, PaPaGei and MOMENT. Add peer-reviewed multimodal physiological models only when their primary papers can be verified. Compare participant-level contrastive learning, morphology-aware objectives, masked autoencoding, shared latent spaces and modality-specific encoders.
+包含 Apple 可穿戴 PPG/ECG 工作、PaPaGei 与 MOMENT 的已核实档案。只有在能核实一手论文时，才补充经过同行评审的多模态生理模型。对比受试者级对比学习、形态学感知目标、掩码自编码、共享潜空间与模态专属编码器。
 
-- [ ] **Step 3: Separate transferable and non-transferable assumptions**
+- [ ] **步骤 3：区分可迁移与不可迁移的前提假设**
 
-Explain explicitly:
+明确说明：
 
-- PPG/ECG have relatively stable physiological morphology, whereas sEMG is strongly affected by electrode location and muscle recruitment.
-- Participant-level positive pairs may preserve identity-related physiology but can conflict with identity-invariant downstream transfer.
-- General time-series models provide strong architecture baselines but may ignore sensor physics and anatomy.
-- Multimodal alignment is most useful when synchronized signals observe different stages of the same physiological process.
+- PPG/ECG 具有相对稳定的生理形态，而 sEMG 受电极位置与肌肉募集影响强烈。
+- 受试者级正样本对可能保留与身份相关的生理信息，但会与身份不变的下游迁移相冲突。
+- 通用时间序列模型提供了强架构基线，但可能忽略传感器物理与解剖结构。
+- 当同步信号观测同一生理过程的不同环节时，多模态对齐最有用。
 
-- [ ] **Step 4: Verify coverage and evidence links**
+- [ ] **步骤 4：校验覆盖情况与证据链接**
 
-Run:
+运行：
 
 ```powershell
 rg -n "ECG|PPG|Apple|PaPaGei|MOMENT|多模态|缺失模态|前臂" docs/research/02_其他生理与时间序列基座模型.md
 ```
 
-Expected: all terms appear, and each named model has a primary-source link.
+预期：所有术语均出现，且每个被点名的模型都有一手来源链接。
 
-- [ ] **Step 5: Commit the cross-modal review**
+- [ ] **步骤 5：提交跨模态综述**
 
 ```powershell
 git add -- docs/research/02_其他生理与时间序列基座模型.md
 git commit -m "docs: review physiological and time-series foundation models"
 ```
 
-### Task 5: Map EMG and non-EMG forearm sensing
+### 任务 5：梳理 EMG 与非 EMG 前臂感知
 
-**Files:**
-- Create: `docs/research/03_EMG与前臂感知研究现状.md`
+**文件：**
+- 新建：`docs/research/03_EMG与前臂感知研究现状.md`
 
-- [ ] **Step 1: Define the physiological chain**
+- [ ] **步骤 1：定义生理链条**
 
-Organize modalities by what they observe:
+按各模态所观测的对象来组织：
 
 ```text
 neural drive → muscle electrical activation → mechanical deformation/force → limb kinematics
                  sEMG/HD-sEMG          MMG/FMG/ultrasound/EIT       IMU/mocap
 ```
 
-Clarify that EIT primarily observes impedance distribution, ultrasound observes structural deformation, and IMU/kinematics are movement outcomes rather than direct muscle signals.
+说明 EIT 主要观测阻抗分布，超声观测结构形变，而 IMU/运动学属于运动结果，而非直接的肌肉信号。
 
-- [ ] **Step 2: Review sEMG and HD-sEMG**
+- [ ] **步骤 2：综述 sEMG 与 HD-sEMG**
 
-Cover motor-unit action potentials, amplitude and spectral features, electrode placement, cross-talk, skin impedance, normalization, high-density spatial maps, motor-unit decomposition and wearable constraints.
+覆盖运动单位动作电位、幅值与频谱特征、电极布局、串扰、皮肤阻抗、归一化、高密度空间图、运动单位分解与可穿戴约束。
 
-- [ ] **Step 3: Review alternative forearm modalities**
+- [ ] **步骤 3：综述前臂替代模态**
 
-For MMG, FMG/pFMG, ultrasound/sonomyography/echomyography, EIT and IMU, report measurement principle, temporal and spatial resolution, wearable feasibility, susceptibility to placement and motion, depth sensitivity, power/compute implications and likely role in pretraining.
+对 MMG、FMG/pFMG、超声/超声肌图/回声肌图、EIT 与 IMU，报告测量原理、时间与空间分辨率、可穿戴可行性、对贴放位置与运动的敏感性、深度敏感性、功耗/算力影响，以及在预训练中可能承担的角色。
 
-- [ ] **Step 4: Review EMG foundation-model precursors and current work**
+- [ ] **步骤 4：综述 EMG 基座模型的前身与当前工作**
 
-Cover self-supervised representation learning, domain adaptation, rapid recalibration, Meta's population-scale generic neuromotor interface and the 2026 AEMG preprint. Distinguish task-specific large supervised decoders from foundation models using explicit criteria: broad pretraining data, reusable encoder, multiple adaptation settings and diverse downstream tasks.
+覆盖自监督表示学习、域适应、快速重校准、Meta 的人群规模通用神经运动接口，以及 2026 年的 AEMG 预印本。用明确标准区分任务专属的大型监督解码器与基座模型：广泛的预训练数据、可复用的编码器、多种适配设置与多样化的下游任务。
 
-- [ ] **Step 5: Analyze the central domain shifts**
+- [ ] **步骤 5：分析核心域偏移**
 
-Create one subsection each for:
+为下列每一项建立一个小节：
 
-- subject anatomy and recruitment;
-- session and re-donning drift;
-- electrode rotation, translation and channel failure;
-- device and sampling-rate differences;
-- posture, load and contraction-intensity confounding;
-- fatigue and temporal non-stationarity;
-- identity information and privacy.
+- 受试者解剖结构与肌肉募集；
+- 会话与重新佩戴带来的漂移；
+- 电极旋转、平移与通道失效；
+- 设备与采样率差异；
+- 姿态、负载与收缩强度的混杂；
+- 疲劳与时间非平稳性；
+- 身份信息与隐私。
 
-- [ ] **Step 6: Verify modality and risk coverage**
+- [ ] **步骤 6：校验模态与风险覆盖情况**
 
-Run:
+运行：
 
 ```powershell
 rg -n "sEMG|HD-sEMG|MMG|FMG|超声|EIT|IMU|疲劳|身份|电极|跨会话|AEMG" docs/research/03_EMG与前臂感知研究现状.md
 ```
 
-Expected: every modality and domain-shift term appears.
+预期：每个模态术语与域偏移术语都出现。
 
-- [ ] **Step 7: Commit the forearm sensing review**
+- [ ] **步骤 7：提交前臂感知综述**
 
 ```powershell
 git add -- docs/research/03_EMG与前臂感知研究现状.md
 git commit -m "docs: map EMG and forearm sensing research"
 ```
 
-### Task 6: Build the public dataset and resource guide
+### 任务 6：编写公开数据集与资源指南
 
-**Files:**
-- Create: `docs/research/04_公开数据集与可用资源.md`
+**文件：**
+- 新建：`docs/research/04_公开数据集与可用资源.md`
 
-- [ ] **Step 1: Define the dataset table schema**
+- [ ] **步骤 1：定义数据集表结构**
 
-Use these columns:
+使用以下列：
 
 ```markdown
 | 数据集 | 受试者/会话 | 模态与通道 | 采样率 | 同步标签 | 主要任务 | 泛化价值 | 许可/访问 | 主要限制 |
 ```
 
-- [ ] **Step 2: Add verified datasets**
+- [ ] **步骤 2：补充经过核实的数据集**
 
-Include NinaPro, Hyser/HD-sEMG, emg2pose, emg2qwerty, HD-FW KIN, a demographic-diversity dataset and a repeated-session dataset. Add other datasets only when participant counts, modalities and access terms are verified from a data paper or official page.
+包含 NinaPro、Hyser/HD-sEMG、emg2pose、emg2qwerty、HD-FW KIN、一个人口多样性数据集与一个重复会话数据集。只有在受试者数量、模态与访问条款已从数据论文或官方页面核实之后，才添加其他数据集。
 
-- [ ] **Step 3: Score suitability without fabricating precision**
+- [ ] **步骤 3：在不虚构精度的前提下评定适用性**
 
-For each dataset, assign categorical suitability—high, medium or low—for:
+对每个数据集，针对下列用途给出分档适用性——高、中或低：
 
-- unlabeled pretraining;
-- motion decoding;
-- force/kinematics;
-- fatigue;
-- identity;
-- cross-session transfer;
-- cross-device transfer.
+- 无标签预训练；
+- 运动解码；
+- 力/运动学；
+- 疲劳；
+- 身份；
+- 跨会话迁移；
+- 跨设备迁移。
 
-Explain the reason for each non-obvious rating. Do not create numerical composite scores without a validated weighting scheme.
+对每一项非显而易见的评级说明理由。在没有经验证的加权方案之前，不要构造数值化的综合评分。
 
-- [ ] **Step 4: Propose the first public-data corpus**
+- [ ] **步骤 4：提出首个公开数据语料库方案**
 
-Define three tiers:
+定义三个层级：
 
-1. Broad sEMG representation pretraining.
-2. Synchronized sEMG–kinematics/force physiological anchoring.
-3. Repeated-session and demographic stress testing.
+1. 广泛的 sEMG 表示预训练。
+2. 同步的 sEMG–运动学/力 生理锚定。
+3. 重复会话与人口统计学压力测试。
 
-For each tier, list candidate datasets, required preprocessing metadata and license compatibility concerns.
+对每个层级，列出候选数据集、必需的前处理元数据与许可证兼容性顾虑。
 
-- [ ] **Step 5: Verify dataset coverage**
+- [ ] **步骤 5：校验数据集覆盖情况**
 
-Run:
+运行：
 
 ```powershell
 rg -n "NinaPro|Hyser|emg2pose|emg2qwerty|HD-FW KIN|疲劳|身份|跨会话|许可" docs/research/04_公开数据集与可用资源.md
 ```
 
-Expected: all named datasets and use cases appear.
+预期：所有被点名的数据集与用例均出现。
 
-- [ ] **Step 6: Commit the dataset guide**
+- [ ] **步骤 6：提交数据集指南**
 
 ```powershell
 git add -- docs/research/04_公开数据集与可用资源.md
 git commit -m "docs: catalogue public forearm biosignal datasets"
 ```
 
-### Task 7: Specify the forearm physiological foundation model
+### 任务 7：细化前臂生理基座模型设计
 
-**Files:**
-- Create: `docs/research/05_前臂生理基座模型方案.md`
+**文件：**
+- 新建：`docs/research/05_前臂生理基座模型方案.md`
 
-- [ ] **Step 1: State the task and non-claim**
+- [ ] **步骤 1：陈述任务与不做的主张**
 
-Use this framing:
+使用如下表述框架：
 
 ```markdown
 目标是学习可在多个前臂生理任务间迁移的表示，而不是建立一个将所有肌肉与所有传感模态统一起来的全身模型。第一阶段以 sEMG 为核心部署输入，IMU、运动学和力量作为优先生理锚点；MMG/FMG、超声和 EIT 按数据可得性逐步接入。
 ```
 
-- [ ] **Step 2: Specify the input contract**
+- [ ] **步骤 2：细化输入契约**
 
-Define signal tensors, channel masks, timestamps and metadata conceptually. Require explicit sampling rate, channel identity or relative position, device, session and participant identifiers. Explain which identifiers may enter the encoder, which are used only for splitting/auditing, and how deployment behaves when metadata is absent.
+在概念层面定义信号张量、通道掩码、时间戳与元数据。要求显式给出采样率、通道身份或相对位置、设备、会话与受试者标识。说明哪些标识可以进入编码器，哪些仅用于划分/审计，以及在元数据缺失时部署行为如何。
 
-- [ ] **Step 3: Specify model modules**
+- [ ] **步骤 3：细化模型模块**
 
-Document each module with motivation, mechanism and ablation role:
+为每个模块记录动机、机制与消融作用：
 
-- modality-specific signal adapter;
-- channel and spatial metadata encoder;
-- multi-timescale shared encoder;
-- dynamic physiological state branch;
-- identity/anatomy branch;
-- device/session nuisance branch;
-- task-specific heads;
-- optional cross-modal teacher encoders.
+- 模态专属信号适配器；
+- 通道与空间元数据编码器；
+- 多时间尺度共享编码器；
+- 动态生理状态分支；
+- 身份/解剖分支；
+- 设备/会话干扰分支；
+- 任务专属头；
+- 可选的跨模态教师编码器。
 
-- [ ] **Step 4: Specify the training stages**
+- [ ] **步骤 4：细化训练阶段**
 
-Use four stages:
+分四个阶段：
 
-1. Single-modality masked and predictive sEMG pretraining.
-2. Channel dropout, sampling-rate variation and device-conditioned robustness.
-3. Cross-modal alignment with kinematics, force, IMU and available muscle modalities.
-4. Factorization using dynamic, identity and device/session objectives with leakage probes.
+1. 单模态的掩码与预测式 sEMG 预训练。
+2. 通道 dropout、采样率变化与设备条件化鲁棒性。
+3. 与运动学、力、IMU 及可用肌肉模态的跨模态对齐。
+4. 用动态、身份与设备/会话目标进行因子化，并配合泄漏探针。
 
-- [ ] **Step 5: Specify objective roles and failure checks**
+- [ ] **步骤 5：细化各目标的作用与失效检查**
 
-For temporal masking, channel masking, latent prediction, cross-modal alignment, cross-session consistency and factorization, state:
+对时间掩码、通道掩码、潜变量预测、跨模态对齐、跨会话一致性与因子化，分别说明：
 
-- what representation it should improve;
-- which shortcut it may introduce;
-- which ablation tests its necessity;
-- which probe detects failure.
+- 它应当改善哪种表示；
+- 它可能引入哪种捷径；
+- 哪个消融实验检验其必要性；
+- 哪个探针能检测其失效。
 
-- [ ] **Step 6: Define minimum viable and extended configurations**
+- [ ] **步骤 6：定义最小可行配置与扩展配置**
 
-Minimum viable configuration:
+最小可行配置：
 
-- sEMG-only adapters;
-- compact multi-scale encoder;
-- temporal and channel masking;
-- motion, fatigue and identity probes;
-- cross-subject and cross-session splits.
+- 仅 sEMG 的适配器；
+- 紧凑的多尺度编码器；
+- 时间掩码与通道掩码；
+- 运动、疲劳与身份探针；
+- 跨受试者与跨会话划分。
 
-Extended configuration:
+扩展配置：
 
-- synchronized IMU/kinematics/force alignment;
-- factorized latent branches;
-- MMG/FMG or ultrasound teacher modality;
-- parameter-efficient personalization;
-- edge deployment measurements.
+- 同步的 IMU/运动学/力对齐；
+- 因子化潜变量分支；
+- MMG/FMG 或超声教师模态；
+- 参数高效个性化；
+- 端侧部署测量。
 
-- [ ] **Step 7: Verify module coverage**
+- [ ] **步骤 7：校验模块覆盖情况**
 
-Run:
+运行：
 
 ```powershell
 rg -n "模态适配器|多时间尺度|动态生理|身份|设备/会话|掩码|跨模态|泄漏|最小可行|扩展配置" docs/research/05_前臂生理基座模型方案.md
 ```
 
-Expected: every architectural and training component appears.
+预期：每个架构组件与训练组件都出现。
 
-- [ ] **Step 8: Commit the model proposal**
+- [ ] **步骤 8：提交模型方案**
 
 ```powershell
 git add -- docs/research/05_前臂生理基座模型方案.md
 git commit -m "docs: design forearm physiological foundation model"
 ```
 
-### Task 8: Define the evaluation benchmark and experiment matrix
+### 任务 8：定义评测基准与实验矩阵
 
-**Files:**
-- Create: `docs/research/06_评测基准与实验矩阵.md`
+**文件：**
+- 新建：`docs/research/06_评测基准与实验矩阵.md`
 
-- [ ] **Step 1: Define split protocols before metrics**
+- [ ] **步骤 1：先定义 split 协议，再定义指标**
 
-Specify:
+明确以下内容：
 
-- subject-disjoint split;
-- session-disjoint split;
-- device-disjoint split;
-- dataset-disjoint transfer;
-- joint subject-and-task holdout where data permit.
+- 受试者不相交的 split（subject-disjoint）；
+- 会话不相交的 split（session-disjoint）；
+- 设备不相交的 split（device-disjoint）；
+- 数据集不相交的迁移（dataset-disjoint transfer）；
+- 在数据允许时，对受试者与任务同时留出（joint subject-and-task holdout）。
 
-Require splitting before windowing and fitting preprocessing only on training data.
+要求先划分再切窗，并且只用训练数据拟合预处理。
 
-- [ ] **Step 2: Define downstream tasks and metrics**
+- [ ] **步骤 2：定义下游任务与指标**
 
-Use:
+采用：
 
-- gesture/action: macro-F1, balanced accuracy and per-class recall;
-- kinematics/force: MAE, RMSE, correlation and latency-aware error;
-- fatigue: subject-disjoint AUROC or macro-F1 plus calibration, with protocol-dependent regression metrics when continuous ground truth exists;
-- identity verification: ROC-AUC and equal error rate;
-- identity identification: top-1 and macro-F1;
-- signal quality/anomaly: AUROC, AUPRC and false-alarm rate.
+- 手势/动作：macro-F1、balanced accuracy 与每类召回率；
+- 运动学/力：MAE、RMSE、相关系数与时延感知误差；
+- 疲劳：受试者不相交的 AUROC 或 macro-F1 加校准，当存在连续真值时补充依赖协议的回归指标；
+- 身份验证：ROC-AUC 与等错误率（equal error rate）；
+- 身份识别：top-1 与 macro-F1；
+- 信号质量/异常：AUROC、AUPRC 与误报率。
 
-- [ ] **Step 3: Define adaptation regimes**
+- [ ] **步骤 3：定义适配模式**
 
-Compare frozen probe, few-shot adaptation, parameter-efficient adaptation, full fine-tuning and from-scratch specialist models. Report trainable parameters, calibration data and compute for every regime.
+对比冻结探针、少样本适配、参数高效适配、完整微调与从零训练的专家模型。对每种模式报告可训练参数量、校准数据与算力开销。
 
-- [ ] **Step 4: Define baseline families**
+- [ ] **步骤 4：定义基线族**
 
-Include:
+包含：
 
-- handcrafted EMG features with linear or tree-based models;
-- compact CNN or temporal convolution specialist;
-- Transformer trained from scratch;
-- general time-series pretrained model;
-- EEG-inspired flexible-channel model;
-- the proposed factorized model.
+- 手工 EMG 特征配线性模型或树模型；
+- 紧凑 CNN 或时间卷积专家模型；
+- 从零训练的 Transformer；
+- 通用时间序列预训练模型；
+- 受 EEG 启发的灵活通道模型；
+- 所提出的因子化模型。
 
-- [ ] **Step 5: Define ablations and stress tests**
+- [ ] **步骤 5：定义消融与压力测试**
 
-Test removal of channel metadata, multiscale modeling, cross-modal alignment, identity branch, device/session branch and each objective. Stress tests must include channel loss, electrode rotation/shift, amplitude scaling, additive noise, resampling, long-duration drift and missing teacher modalities.
+测试移除通道元数据、多尺度建模、跨模态对齐、身份分支、设备/会话分支以及每个目标函数。压力测试必须包含通道丢失、电极旋转/偏移、幅值缩放、加性噪声、重采样、长时漂移与教师模态缺失。
 
-- [ ] **Step 6: Define leakage and negative controls**
+- [ ] **步骤 6：定义泄漏检查与阴性对照**
 
-Include shuffled-label controls, dataset-identity probes, window-adjacency checks, participant-template leakage checks, chronological confound tests for fatigue and action-intensity controls for fatigue classification.
+包含打乱标签对照、数据集身份探针、窗口相邻性检查、受试者模板泄漏检查、针对疲劳的时间顺序混杂检验，以及针对疲劳分类的动作强度对照。
 
-- [ ] **Step 7: Build the claim–evidence matrix**
+- [ ] **步骤 7：构建主张—证据矩阵**
 
-Add a table mapping each proposed claim to required evidence. At minimum:
+增加一张表，把每条拟提出的主张映射到所需证据。至少包含：
 
 ```markdown
 | 主张 | 必要证据 | 失败判据 |
@@ -561,137 +561,137 @@ Add a table mapping each proposed claim to required evidence. At minimum:
 | 身份与动态状态可分解 | 子空间交叉探针和消融 | 动态分支仍高精度识别身份 |
 ```
 
-- [ ] **Step 8: Verify evaluation completeness**
+- [ ] **步骤 8：校验评测完备性**
 
-Run:
+运行：
 
 ```powershell
 rg -n "subject-disjoint|session-disjoint|device-disjoint|macro-F1|RMSE|equal error rate|冻结|少样本|从零训练|通道缺失|电极|泄漏|失败判据" docs/research/06_评测基准与实验矩阵.md
 ```
 
-Expected: all protocols, metric families and risk controls appear.
+预期：所有协议、指标族与风险控制措施均出现。
 
-- [ ] **Step 9: Commit the benchmark design**
+- [ ] **步骤 9：提交基准设计**
 
 ```powershell
 git add -- docs/research/06_评测基准与实验矩阵.md
 git commit -m "docs: define forearm foundation model benchmark"
 ```
 
-### Task 9: Write the roadmap and beginner research map
+### 任务 9：撰写路线图与入门研究地图
 
-**Files:**
-- Create: `docs/research/07_分阶段研究路线图.md`
-- Create: `docs/research/00_研究地图与入门指南.md`
+**文件：**
+- 新建：`docs/research/07_分阶段研究路线图.md`
+- 新建：`docs/research/00_研究地图与入门指南.md`
 
-- [ ] **Step 1: Define Phase 0—reproduction and audit**
+- [ ] **步骤 1：定义 Phase 0——复现与审计**
 
-Phase 0 must reproduce representative baselines on two public sEMG datasets, verify subject/session splits, and establish a common preprocessing and evaluation harness. Exit only when leakage checks and from-scratch baselines are stable.
+Phase 0 必须在两个公开 sEMG 数据集上复现代表性基线，核实受试者/会话划分，并建立统一的前处理与评测框架。只有在泄漏检查与从零训练的基线都稳定之后，才可通过。
 
-- [ ] **Step 2: Define Phase 1—minimum viable foundation model**
+- [ ] **步骤 2：定义 Phase 1——最小可行基座模型**
 
-Phase 1 uses sEMG-only pretraining with temporal and channel masking. It evaluates motion, fatigue and identity probes under cross-subject and cross-session splits. The phase succeeds only if pretraining improves at least two task families in frozen or low-label settings without relying on random-window splits.
+Phase 1 使用仅 sEMG 的预训练，配合时间掩码与通道掩码。在跨受试者与跨会话划分下评测运动、疲劳与身份探针。只有当预训练在冻结或少标签设定下改善了至少两个任务族，且不依赖随机窗口划分时，该阶段才算成功。
 
-- [ ] **Step 3: Define Phase 2—physiological anchoring and factorization**
+- [ ] **步骤 3：定义 Phase 2——生理锚定与因子化**
 
-Phase 2 adds synchronized kinematics, force or IMU alignment and separates dynamic, identity and device/session subspaces. Success requires improved transfer or robustness plus evidence from leakage probes and branch ablations.
+Phase 2 加入同步的运动学、力或 IMU 对齐，并分离动态、身份与设备/会话子空间。成功要求迁移或鲁棒性得到改善，并具备来自泄漏探针与分支消融的证据。
 
-- [ ] **Step 4: Define Phase 3—multimodal and deployment extension**
+- [ ] **步骤 4：定义 Phase 3——多模态与部署扩展**
 
-Phase 3 evaluates MMG/FMG, ultrasound or EIT as additional input or training-only teacher modalities, parameter-efficient personalization, missing-modality behavior and edge latency/memory. This phase is optional until Phase 2 passes its criteria.
+Phase 3 评估将 MMG/FMG、超声或 EIT 作为额外输入或仅训练时使用的教师模态，评估参数高效个性化、缺失模态行为与端侧时延/内存。在 Phase 2 通过其判据之前，本阶段是可选的。
 
-- [ ] **Step 5: Add resource-scaled schedules**
+- [ ] **步骤 5：补充按资源规模分档的计划表**
 
-Provide three schedules without assuming exact hardware:
+给出三档计划，不假设具体硬件：
 
-- lightweight: public datasets, compact models, sEMG-only;
-- standard: several public datasets, synchronized anchors, factorized model;
-- ambitious: new longitudinal collection, multimodal teachers and deployment study.
+- 轻量：公开数据集、紧凑模型、仅 sEMG；
+- 标准：多个公开数据集、同步生理锚点、因子化模型；
+- 进取：新的纵向采集、多模态教师与部署研究。
 
-For each schedule list deliverables, dependencies, main risk and stop/go criteria.
+对每档计划列出交付物、依赖关系、主要风险与停止/继续判据。
 
-- [ ] **Step 6: Write the beginner map last**
+- [ ] **步骤 6：最后撰写入门地图**
 
-In `00_研究地图与入门指南.md`, synthesize the completed package into:
+在 `00_研究地图与入门指南.md` 中，把已完成的研究包综合为：
 
-- what a physiological foundation model is and is not;
-- essential EEG lessons;
-- forearm sensing modalities;
-- recommended paper-reading sequence;
-- recommended hands-on reproduction sequence;
-- ten high-value research questions;
-- a glossary cross-linked to `README.md`;
-- links to documents 01–07.
+- 生理基座模型是什么、不是什么；
+- EEG 的核心经验；
+- 前臂感知模态；
+- 推荐的论文阅读顺序；
+- 推荐的动手复现顺序；
+- 十个高价值研究问题；
+- 与 `README.md` 交叉链接的术语表；
+- 指向文档 01–07 的链接。
 
-- [ ] **Step 7: Verify roadmap and cross-links**
+- [ ] **步骤 7：校验路线图与交叉链接**
 
-Run:
+运行：
 
 ```powershell
 rg -n "Phase 0|Phase 1|Phase 2|Phase 3|退出|成功|停止|轻量|标准|进取" docs/research/07_分阶段研究路线图.md
 rg -n "01_EEG|02_其他生理|03_EMG|04_公开数据集|05_前臂生理|06_评测|07_分阶段" docs/research/00_研究地图与入门指南.md
 ```
 
-Expected: all phases, decision criteria and document links appear.
+预期：所有阶段、决策判据与文档链接均出现。
 
-- [ ] **Step 8: Commit the roadmap and research map**
+- [ ] **步骤 8：提交路线图与研究地图**
 
 ```powershell
 git add -- docs/research/00_研究地图与入门指南.md docs/research/07_分阶段研究路线图.md
 git commit -m "docs: add forearm foundation model research roadmap"
 ```
 
-### Task 10: Integrate, audit and finalize the package
+### 任务 10：整合、审计并定稿研究包
 
-**Files:**
-- Modify: `docs/research/README.md`
-- Modify: `docs/research/00_研究地图与入门指南.md`
-- Modify: `docs/research/01_EEG基座模型现状与方法.md`
-- Modify: `docs/research/02_其他生理与时间序列基座模型.md`
-- Modify: `docs/research/03_EMG与前臂感知研究现状.md`
-- Modify: `docs/research/04_公开数据集与可用资源.md`
-- Modify: `docs/research/05_前臂生理基座模型方案.md`
-- Modify: `docs/research/06_评测基准与实验矩阵.md`
-- Modify: `docs/research/07_分阶段研究路线图.md`
-- Modify: `docs/research/literature_matrix.csv`
-- Modify: `docs/research/references.bib`
+**文件：**
+- 修改：`docs/research/README.md`
+- 修改：`docs/research/00_研究地图与入门指南.md`
+- 修改：`docs/research/01_EEG基座模型现状与方法.md`
+- 修改：`docs/research/02_其他生理与时间序列基座模型.md`
+- 修改：`docs/research/03_EMG与前臂感知研究现状.md`
+- 修改：`docs/research/04_公开数据集与可用资源.md`
+- 修改：`docs/research/05_前臂生理基座模型方案.md`
+- 修改：`docs/research/06_评测基准与实验矩阵.md`
+- 修改：`docs/research/07_分阶段研究路线图.md`
+- 修改：`docs/research/literature_matrix.csv`
+- 修改：`docs/research/references.bib`
 
-- [ ] **Step 1: Audit spec coverage**
+- [ ] **步骤 1：审计需求覆盖情况**
 
-Confirm that the package answers:
+确认研究包回答了：
 
-1. What methods current EEG and physiological foundation models use.
-2. Which lessons transfer to forearm muscle sensing and which do not.
-3. How the proposed factorized multimodal model is structured and trained.
-4. How experiments distinguish physiological transfer from dataset shortcuts.
+1. 当前 EEG 与生理基座模型使用了哪些方法。
+2. 哪些经验可以迁移到前臂肌肉感知，哪些不能。
+3. 所提出的因子化多模态模型如何组织与训练。
+4. 实验如何区分生理迁移与数据集捷径。
 
-Add missing links or explanations to the responsible document rather than duplicating long passages.
+把缺失的链接或说明补到应负责的文档中，而不是重复大段内容。
 
-- [ ] **Step 2: Audit terminology consistency**
+- [ ] **步骤 2：审计术语一致性**
 
-Run:
+运行：
 
 ```powershell
 rg -n "surface EMG|sEMG|HD-sEMG|生理基座模型|前臂生理基座模型|冻结探测|少样本适配" docs/research/*.md
 ```
 
-Expected: abbreviations are expanded at first use in each standalone document, and canonical terms remain consistent.
+预期：缩写在各独立文档中首次出现时均已展开，且规范术语保持一致。
 
-- [ ] **Step 3: Audit unsupported claims and publication status**
+- [ ] **步骤 3：审计无依据的主张与发表状态**
 
-Search for absolute novelty and universality language. Replace it with bounded wording unless primary evidence directly supports the statement. Every preprint cited in prose must be labeled `预印本`, and every model table must contain publication status.
+搜索绝对化的新颖性与普适性措辞。除非一手证据直接支持该表述，否则改为限定范围的措辞。正文中引用的每篇预印本都必须标注 `预印本`，每个模型表都必须包含发表状态。
 
-Run:
+运行：
 
 ```powershell
 rg -n "首次|唯一|全面|彻底|总是|从不|state-of-the-art|SOTA" docs/research/*.md
 ```
 
-Expected: each match is either attributed to the original authors as a claim, bounded by scope, or removed.
+预期：每处匹配要么作为原作者的主张标注归属，要么被限定范围，要么删除。
 
-- [ ] **Step 4: Audit local Markdown links**
+- [ ] **步骤 4：审计本地 Markdown 链接**
 
-Run:
+运行：
 
 ```powershell
 $files = Get-ChildItem docs/research -Filter *.md
@@ -706,15 +706,15 @@ foreach ($file in $files) {
 if ($broken.Count -gt 0) { $broken; throw "Broken local Markdown links" }
 ```
 
-Expected: no broken links.
+预期：无失效链接。
 
-- [ ] **Step 5: Audit primary-source URLs**
+- [ ] **步骤 5：审计一手来源 URL**
 
-Compare every named paper and dataset in documents 01–04 against `literature_matrix.csv`. Add any missing record and BibTeX entry. Ensure each retained matrix row has a primary URL and verification date of 2026-07-31.
+把文档 01–04 中每一个被点名的论文与数据集与 `literature_matrix.csv` 对照。补上任何缺失的记录与 BibTeX 条目。确保保留的每一行矩阵都有主 URL 且核验日期为 2026-07-31。
 
-- [ ] **Step 6: Run global file and whitespace checks**
+- [ ] **步骤 6：运行全局文件与空白检查**
 
-Run:
+运行：
 
 ```powershell
 $expected = @(
@@ -735,26 +735,26 @@ if ($missing.Count -gt 0) { throw "Missing deliverables: $($missing -join ', ')"
 git diff --check -- docs/research
 ```
 
-Expected: all deliverables exist and `git diff --check` reports no errors.
+预期：所有交付物均存在，且 `git diff --check` 报告无错误。
 
-- [ ] **Step 7: Update the package index**
+- [ ] **步骤 7：更新研究包索引**
 
-Add a one-sentence description and relative link for every deliverable to `docs/research/README.md`. State the final source count, number of peer-reviewed papers, number of preprints and number of dataset resources based on `literature_matrix.csv`.
+为每个交付物在 `docs/research/README.md` 中添加一句说明与相对链接。基于 `literature_matrix.csv` 说明最终来源总数、同行评审论文数、预印本数与数据资源数。
 
-- [ ] **Step 8: Commit the integrated package**
+- [ ] **步骤 8：提交整合后的研究包**
 
 ```powershell
 git add -- docs/research
 git commit -m "docs: finalize forearm physiological foundation model research package"
 ```
 
-- [ ] **Step 9: Report completion evidence**
+- [ ] **步骤 9：汇报完成证据**
 
-Record in the final handoff:
+在最终交接中记录：
 
-- exact file links;
-- literature matrix row count;
-- peer-reviewed/preprint/dataset counts;
-- validation commands run and their outcomes;
-- unresolved evidence gaps, if any;
-- recommended first experiment from document 07.
+- 确切的文件链接；
+- 文献矩阵行数；
+- 同行评审/预印本/数据集的数量；
+- 所运行的校验命令及其结果；
+- 尚未解决的证据缺口（如有）；
+- 来自文档 07 的推荐首个实验。

@@ -1,48 +1,48 @@
-# Ring Criss-Cross sEMG Foundation Model Design
+# Ring Criss-Cross sEMG 基座模型设计
 
-**Date:** 2026-09-09  
-**Status:** Approved for implementation planning  
-**Repository:** `D:\Fmodel`
+**日期：** 2026-09-09  
+**状态：** 已批准进入实施规划  
+**仓库：** `D:\Fmodel`
 
-## 1. Objective
+## 1. 目标
 
-Build a reproducible PyTorch Lightning and Hydra research stack on top of the five existing Meta 16-channel wrist-sEMG H5 converters. The stack will support:
+在现有的五个 Meta 16 通道手腕 sEMG H5 转换脚本之上，构建一套可复现的 PyTorch Lightning 与 Hydra 研究栈。该研究栈将支持：
 
-- topology-aware self-supervised pretraining for a uniformly spaced 16-electrode wrist ring;
-- downstream evaluation on emg2pose, emg2qwerty, GNI discrete gestures, GNI handwriting, and GNI wrist;
-- supervised TCN, BENDR-style, CBraMod-style, and AEMG-style comparisons;
-- fair subject/session/pair splits, low-label transfer, and channel-perturbation robustness evaluation;
-- training on one to eight A100 GPUs without changing code.
+- 面向均匀排布的 16 电极手腕环的拓扑感知自监督预训练；
+- 在 emg2pose、emg2qwerty、GNI 离散手势、GNI 手写和 GNI wrist 上的下游评测；
+- 有监督 TCN、BENDR 风格、CBraMod 风格和 AEMG 风格的对比方法；
+- 公平的 subject/session/pair 划分、低标签迁移和通道扰动鲁棒性评测；
+- 无需改动代码即可在 1 到 8 张 A100 GPU 上训练。
 
-The primary method is named **CIRCE-Myo** in documentation. Its backbone is a **Ring Criss-Cross Transformer** that combines temporal attention with circular spatial attention. The research claim is limited to transfer across tasks, people, sessions, and electrode-phase perturbations within the Meta wristband family. The project will not claim cross-device generalization without external-device data.
+文档中将主方法命名为 **CIRCE-Myo**。其骨干是 **Ring Criss-Cross Transformer**，它将时间注意力与环形空间注意力结合起来。研究结论仅限于 Meta 腕带系列内部跨任务、跨人、跨会话以及电极相位扰动下的迁移。在没有外部设备数据的情况下，本项目不会声称具备跨设备泛化能力。
 
-## 2. Scope
+## 2. 范围
 
-### 2.1 Included
+### 2.1 纳入范围
 
-- Lazy loading from the canonical H5 contract produced by the five converter scripts.
-- Deterministic subject/session/pair-level split management.
-- Time-based windowing with labels aligned from `time_s`.
-- A multi-scale time-domain and spectral patch encoder.
-- Ring Criss-Cross attention with circular relative-position bias.
-- Continuous masked teacher pretraining, circular equivariance, and optional kinematic anchoring.
-- Five task adapters and task-appropriate metrics.
-- Four comparison methods using the same data and downstream protocols.
-- Hydra configurations for CPU smoke tests and one to eight GPU DDP runs.
-- Unit and integration tests using synthetic canonical H5 files.
+- 从五个转换脚本产出的 canonical H5 契约进行惰性加载。
+- 确定性的 subject/session/pair 级划分管理。
+- 基于时间的切窗，标签由 `time_s` 对齐。
+- 多尺度时域与频谱 patch 编码器。
+- 带环形相对位置偏置的 Ring Criss-Cross 注意力。
+- 连续掩码教师预训练、环形等变性，以及可选的运动学锚定。
+- 五个任务适配器以及与任务匹配的指标。
+- 四个使用相同数据和下游协议的对比方法。
+- 用于 CPU 冒烟测试和 1 到 8 卡 GPU DDP 运行的 Hydra 配置。
+- 使用合成的 canonical H5 文件的单元测试与集成测试。
 
-### 2.2 Excluded from the first implementation
+### 2.2 首版实现不包含
 
-- An external language model for qwerty decoding.
-- Claims of official reproduction for BENDR, CBraMod, or AEMG.
-- Multi-node training. The code may work with Lightning multi-node settings, but the acceptance suite targets a single node with up to eight GPUs.
-- Online serving, mobile deployment, and quantization.
-- Cross-manufacturer device evaluation.
-- Arbitrary channel permutation invariance. Only transformations supported by the wrist-ring geometry are allowed.
+- 用于 qwerty 解码的外部语言模型。
+- 对 BENDR、CBraMod 或 AEMG 的官方复现声明。
+- 多节点训练。代码或许能在 Lightning 多节点设置下工作，但验收测试只针对单节点最多 8 张 GPU。
+- 在线服务、移动端部署和量化。
+- 跨厂商设备评测。
+- 任意通道置换不变性。只允许手腕环几何所能支持的变换。
 
-## 3. Repository Layout
+## 3. 仓库结构
 
-The five converter scripts in `semg_h5/` remain standalone and unchanged. New training code is isolated in `semg_fm/`.
+`semg_h5/` 中的五个转换脚本保持独立且不变。新的训练代码隔离在 `semg_fm/` 中。
 
 ```text
 D:\Fmodel
@@ -98,18 +98,18 @@ D:\Fmodel
 └── SERVER_A100.md
 ```
 
-## 4. Canonical Data Contract
+## 4. Canonical 数据契约
 
-Each record must contain:
+每条记录必须包含：
 
-- `/signal/emg`: finite `float32 [T, 16]`;
-- `/signal/time_s`: monotonic `float64 [T]`;
-- root attributes including `dataset_id`, `task_id`, `subject_id`, `session_id`, `side`, `pair_id`, `official_split`, and `sample_rate_hz`;
-- task-specific datasets under `/labels`.
+- `/signal/emg`：有限的 `float32 [T, 16]`；
+- `/signal/time_s`：单调的 `float64 [T]`；
+- 根属性，包括 `dataset_id`、`task_id`、`subject_id`、`session_id`、`side`、`pair_id`、`official_split` 和 `sample_rate_hz`；
+- `/labels` 下的任务专属数据集。
 
-The loader validates the contract before yielding a window. It opens H5 files lazily per worker and does not retain live `h5py.File` handles across process serialization. Window and patch durations are configured in milliseconds, then converted using each record's `sample_rate_hz`.
+loader 在产出窗口之前先校验该契约。它按 worker 惰性打开 H5 文件，且不会在进程间序列化时保留存活的 `h5py.File` 句柄。窗口和 patch 时长以毫秒配置，再依据每条记录的 `sample_rate_hz` 换算。
 
-The dataloader returns a common dictionary:
+dataloader 返回统一的字典：
 
 ```python
 {
@@ -128,192 +128,192 @@ The dataloader returns a common dictionary:
 }
 ```
 
-Task-specific collation is selected by `task_id`. A pretraining batch is homogeneous in source task so that optional labels have a stable schema. A task-balanced sampler controls the long-run contribution of each dataset.
+任务专属的 collate 由 `task_id` 选择。预训练 batch 在源任务上是同质的，以便可选标签具有稳定的 schema。任务均衡 sampler 控制各数据集在长期运行中的贡献比例。
 
-## 5. Splits and Leakage Prevention
+## 5. 划分与泄漏防护
 
-Splits occur before windowing. The loader prefers non-empty `official_split` values. If a corpus lacks official splits, a dedicated command creates a deterministic split CSV using subject groups. That file becomes an immutable input to all later runs.
+划分发生在切窗之前。loader 优先使用非空的 `official_split` 取值。若某个语料缺少官方划分，则由一个专用命令按受试者分组生成确定性的 split CSV。该文件此后成为所有后续运行的不可变输入。
 
-Rules:
+规则：
 
-- no subject may occur in more than one split unless an official protocol explicitly requires subject adaptation;
-- no session may cross splits;
-- left and right qwerty records sharing `pair_id` must remain in the same split;
-- low-label subsets select complete subject/session groups rather than random windows;
-- normalization statistics are estimated from training records only;
-- every run copies the resolved split CSV and stores a SHA-256 digest of the source manifest.
+- 除非官方协议明确要求受试者适配，否则同一个受试者不得出现在多个划分中；
+- 同一个会话不得跨划分；
+- 共享 `pair_id` 的 qwerty 左右记录必须留在同一个划分中；
+- 低标签子集按完整的受试者/会话组选取，而不是随机窗口；
+- 归一化统计量仅从训练记录估计；
+- 每次运行都会复制解析后的 split CSV，并保存源 manifest 的 SHA-256 摘要。
 
-## 6. Signal Normalization and Augmentation
+## 6. 信号归一化与增强
 
-The H5 converters preserve source values. Training preprocessing is explicit and reproducible in Hydra configuration.
+H5 转换脚本保留源数值。训练预处理在 Hydra 配置中显式声明且可复现。
 
-The default normalization uses a robust scalar estimated from the training corpus or record, shared across the 16 channels. Independent per-channel normalization is disabled by default because it destroys spatial amplitude ratios. The resolved configuration records filtering, normalization, and augmentation parameters.
+默认归一化使用从训练语料或记录估计的、在 16 个通道间共享的 robust 标量。默认禁用独立的逐通道归一化，因为它会破坏空间幅值比例。解析后的配置会记录滤波、归一化和增强参数。
 
-Physically supported augmentations include:
+物理上支持的增强包括：
 
-- circular channel shift;
-- contiguous ring-sector dropout;
-- independent channel dropout;
-- scalar or slowly varying gain drift;
-- additive noise;
-- short time-block dropout.
+- 环形通道平移；
+- 连续环扇区 dropout；
+- 独立通道 dropout；
+- 标量或缓慢变化的增益漂移；
+- 加性噪声；
+- 短时块 dropout。
 
-Arbitrary channel shuffling is prohibited. Left/right reflection and polarity inversion remain disabled until converter metadata proves the required physical transform for a corpus.
+禁止任意通道乱序。左右镜像和极性翻转保持禁用，直到转换器元数据能够证明某语料所需的物理变换成立。
 
-## 7. CIRCE-Myo Backbone
+## 7. CIRCE-Myo 骨干
 
-### 7.1 Multi-scale patch encoder
+### 7.1 多尺度 patch 编码器
 
-Input has shape `[B, T, 16]`. A short time-domain branch captures approximately 20–50 ms morphology. A second branch summarizes approximately 100–250 ms envelope or log-power information. Configuration specifies durations in milliseconds, allowing records with different sampling rates to share one model contract.
+输入形状为 `[B, T, 16]`。短时域分支捕获约 20–50 ms 的形态。第二个分支概括约 100–250 ms 的包络或对数功率信息。配置以毫秒指定时长，使采样率不同的记录可以共享同一套模型契约。
 
-The fused tensor has shape `[B, C=16, N, D]`. The implementation preserves the channel axis throughout the backbone.
+融合后的张量形状为 `[B, C=16, N, D]`。实现在整个骨干中保留通道轴。
 
-### 7.2 Ring Criss-Cross block
+### 7.2 Ring Criss-Cross 模块
 
-Each block computes temporal and spatial attention in parallel:
+每个模块并行计算时间注意力和空间注意力：
 
-- temporal attention reshapes to `[B*C, N, D]` and attends across time for each electrode;
-- ring attention reshapes to `[B*N, C, D]` and attends across electrodes at each time token;
-- a learned gate fuses the two residual updates.
+- 时间注意力重塑为 `[B*C, N, D]`，在每个电极上沿时间做注意力；
+- 环形注意力重塑为 `[B*N, C, D]`，在每个时间 token 上跨电极做注意力；
+- 一个学习到的门控融合两路残差更新。
 
-Ring attention uses a learnable signed circular relative-position bias indexed by `(c_i - c_j) mod 16`. Consequently, channels 15 and 0 are adjacent. No absolute anatomical meaning is assigned to a fixed channel number.
+环形注意力使用可学习的带符号环形相对位置偏置，以 `(c_i - c_j) mod 16` 索引。因此通道 15 和 0 相邻。固定的通道编号不被赋予任何绝对的解剖学含义。
 
-The backbone returns:
+骨干返回：
 
-- `z_eq [B, 16, N, D]`, an electrode-field representation that should transform equivariantly under circular shifts;
-- `z_motion [B, N, D]`, an orbit-pooled motion representation designed to be stable under circular shifts.
+- `z_eq [B, 16, N, D]`，电极场表示，在环形平移下应等变地变换；
+- `z_motion [B, N, D]`，轨道池化后的运动表示，设计为在环形平移下保持稳定。
 
-### 7.3 Mask generation
+### 7.3 掩码生成
 
-Masking operates on the `[16, N]` patch grid and always emits an explicit boolean mask. Available mask types are temporal spans, contiguous electrode arcs, complete channel dropout, local spatial-temporal blocks, and sparse independent patches. The default configuration samples a mixture so that reconstruction requires both temporal context and cross-electrode context.
+掩码在 `[16, N]` 的 patch 网格上进行，并且始终输出显式的布尔掩码。可用的掩码类型包括时间段、连续电极弧段、整通道 dropout、局部时空块和稀疏独立 patch。默认配置采样混合类型，使重建既需要时间上下文，也需要跨电极上下文。
 
-## 8. Pretraining Objectives
+## 8. 预训练目标
 
-The default method uses three objectives:
+默认方法使用三个目标：
 
 ```text
 L = L_masked_latent + lambda_ring * L_ring + lambda_kin * L_kinematic
 ```
 
-### 8.1 Continuous masked teacher objective
+### 8.1 连续掩码教师目标
 
-An EMA teacher receives the unmasked view. The student receives a masked view. The loss is computed only at masked positions and combines normalized Smooth-L1 and cosine distance between continuous teacher and student latents. The teacher is stop-gradient and updated after optimizer steps. All DDP ranks start from the same parameters and perform identical EMA updates.
+EMA 教师接收未掩码视图，学生接收掩码视图。损失只在被掩码的位置计算，由教师与学生连续潜变量之间的归一化 Smooth-L1 与余弦距离组合而成。教师端 stop-gradient，并在优化器步之后更新。所有 DDP rank 从相同参数出发，并执行完全一致的 EMA 更新。
 
-### 8.2 Circular equivariance objective
+### 8.2 环形等变目标
 
-For a randomly sampled circular shift `S_k`, the electrode-field target is equivariant and the pooled motion target is invariant:
+对于随机采样的环形平移 `S_k`，电极场目标是等变的，池化后的运动目标是不变的：
 
 ```text
 z_eq(S_k x) ~= S_k z_eq(x)
 z_motion(S_k x) ~= z_motion(x)
 ```
 
-The implementation aligns the shifted electrode axis before computing the first loss. This objective does not treat arbitrary samples or left/right wrists as positive pairs.
+实现在计算第一个损失之前先对齐被平移过的电极轴。该目标不会把任意样本或左右手腕当作正样本对。
 
-### 8.3 Kinematic objective
+### 8.3 运动学目标
 
-The objective is active only for training records from emg2pose and GNI wrist. A small adapter predicts normalized continuous targets from `z_motion`. emg2pose frames with invalid inverse-kinematics status are masked from the loss. Kinematic normalization statistics come from the training split and evaluation restores original units.
+该目标仅对来自 emg2pose 和 GNI wrist 的训练记录生效。一个小型适配器从 `z_motion` 预测归一化后的连续目标。逆运动学状态无效的 emg2pose 帧会从损失中屏蔽。运动学归一化统计量来自训练划分，评测时恢复原始单位。
 
-Envelope reconstruction, spectral reconstruction, future prediction, and VQ targets are optional ablations rather than default losses.
+包络重建、频谱重建、未来预测和 VQ 目标是可选消融项，而不是默认损失。
 
-## 9. Downstream Tasks
+## 9. 下游任务
 
 ### 9.1 emg2pose
 
-- Source: `/labels/joint_angles` and optional `/labels/no_ik_failure`.
-- Head: per-frame continuous regression.
-- Metrics: per-joint and aggregate MAE, RMSE, Pearson correlation, and velocity MAE.
-- Invalid IK frames are excluded from both loss and metrics.
+- 数据来源：`/labels/joint_angles` 和可选的 `/labels/no_ik_failure`。
+- 任务头：逐帧连续回归。
+- 指标：逐关节及总体 MAE、RMSE、Pearson 相关和速度 MAE。
+- 无效 IK 帧同时从损失和指标中排除。
 
 ### 9.2 GNI wrist
 
-- Source: numeric datasets under `/labels/targets`.
-- Head: configurable multi-target regression.
-- Metrics: original-unit MAE, RMSE, and correlation for every target and their macro average.
+- 数据来源：`/labels/targets` 下的数值数据集。
+- 任务头：可配置的多目标回归。
+- 指标：每个目标的原始单位 MAE、RMSE 和相关，以及它们的宏平均。
 
-### 9.3 GNI discrete gestures
+### 9.3 GNI 离散手势
 
-- Source: `/labels/events` with `name` and `time_s`.
-- Head: frame-level classification including a background class.
-- Training targets: event-centered tolerance intervals configured in milliseconds.
-- Metrics: macro F1, balanced accuracy, and event F1 under declared time tolerances.
+- 数据来源：`/labels/events`，含 `name` 和 `time_s`。
+- 任务头：帧级分类，包含背景类。
+- 训练目标：以事件为中心、按毫秒配置的容差区间。
+- 指标：宏 F1、平衡准确率，以及在声明的容差时间下的事件 F1。
 
-### 9.4 GNI handwriting
+### 9.4 GNI 手写
 
-- Source: `/labels/prompts` with `text`, `start_s`, and `end_s`.
-- Head: character CTC decoder over each prompt interval.
-- Metrics: character error rate, normalized edit distance, and exact prompt accuracy.
-- The implementation does not invent per-character timing labels.
+- 数据来源：`/labels/prompts`，含 `text`、`start_s` 和 `end_s`。
+- 任务头：在每个 prompt 区间上做字符级 CTC 解码。
+- 指标：字符错误率、归一化编辑距离和 prompt 完全匹配准确率。
+- 实现不会编造逐字符的时间标签。
 
 ### 9.5 emg2qwerty
 
-- Source: `/labels/keystrokes` and `/labels/prompts`.
-- Head: character CTC decoder, with an optional event output for key timing.
-- Metrics: character error rate, key-event F1, and detection latency.
-- Main encoder comparisons do not use an external language model.
+- 数据来源：`/labels/keystrokes` 和 `/labels/prompts`。
+- 任务头：字符级 CTC 解码器，可选输出用于按键计时的 event。
+- 指标：字符错误率、按键事件 F1 和检测延迟。
+- 主要的编码器对比不使用外部语言模型。
 
-## 10. Fine-tuning Protocols
+## 10. 微调协议
 
-Every task supports:
+每个任务都支持：
 
-- linear probing with the backbone frozen;
-- partial fine-tuning of the last configured number of backbone blocks;
-- full fine-tuning.
+- 冻结骨干的线性探针；
+- 对骨干末尾配置数量的模块做部分微调；
+- 完整微调。
 
-Label budgets are 1%, 5%, 10%, and 100% at the subject/session-group level. All methods use the same task head, optimizer family, maximum update budget, split file, and preprocessing. Each reported configuration supports at least three seeds.
+标签预算为受试者/会话组级别的 1%、5%、10% 和 100%。所有方法使用相同的任务头、优化器族、最大更新预算、划分文件与预处理。每个报告配置至少支持三个随机种子。
 
-## 11. Comparison Methods
+## 11. 对比方法
 
-### 11.1 Supervised TCN
+### 11.1 有监督 TCN
 
-A temporal convolutional encoder trained directly on each downstream task without self-supervised pretraining. It establishes whether pretraining improves over a competitive supervised model.
+一个时间卷积编码器，直接在各下游任务上训练，不做自监督预训练。用于确认预训练相对于一个足够强的有监督模型是否有增益。
 
-### 11.2 BENDR-style baseline
+### 11.2 BENDR 风格基线
 
-A convolutional latent encoder and temporal Transformer use masked continuous contrastive prediction. Negatives come from other positions in the same record. It tests whether gains arise from ordinary continuous masked pretraining without explicit ring topology.
+卷积潜变量编码器加时间 Transformer，采用掩码连续对比预测。负样本来自同一记录中的其他位置。用于检验增益是否来自不显式使用环形拓扑的普通连续掩码预训练。
 
-### 11.3 CBraMod-style baseline
+### 11.3 CBraMod 风格基线
 
-A time-domain and FFT patch encoder feeds parallel temporal and ordinary spatial attention. Conditional position encoding and masked waveform reconstruction follow the core CBraMod mechanism. It uses the fixed channel order without circular relative-position bias or equivariance loss.
+时域与 FFT patch 编码器接入并行的时间注意力和普通空间注意力。条件位置编码和掩码波形重建遵循 CBraMod 的核心机制。它使用固定通道顺序，不带环形相对位置偏置或等变损失。
 
-### 11.4 AEMG-style baseline
+### 11.4 AEMG 风格基线
 
-A contraction-aware encoder, vector-quantization codebook, and masked token classifier reproduce the core AEMG hypothesis. Logs include codebook perplexity, code utilization, and dead-code fraction. The documentation states all deviations from the paper and does not label this as an official implementation.
+收缩感知编码器、向量量化 codebook 和掩码 token 分类器复现 AEMG 的核心假设。日志包含 codebook 困惑度、code 使用率和死 code 比例。文档会写明与原文的全部差异，且不将其标注为官方实现。
 
-All methods provide small and base configurations. The experiment table reports parameter count, training tokens, steps, global batch size, and approximate compute so model-size or data-budget differences remain visible.
+所有方法都提供 small 和 base 两档配置。实验表报告参数量、训练 token 数、步数、全局 batch size 和近似算力，使模型规模或数据预算的差异始终可见。
 
-## 12. Robustness Evaluation
+## 12. 鲁棒性评测
 
-Evaluation-time transforms operate in memory and never modify H5 files. Required tests are:
+评测时的变换在内存中进行，绝不修改 H5 文件。必须包含的测试有：
 
-- circular shifts of 1, 2, 4, and 8 channels;
-- one or more adjacent missing electrodes;
-- random single-channel dropout;
-- gain drift;
-- additive noise at configured signal-to-noise ratios;
-- short temporal signal loss.
+- 1、2、4 和 8 个通道的环形平移；
+- 一个或多个相邻电极缺失；
+- 随机单通道 dropout；
+- 增益漂移；
+- 按配置信噪比加入的加性噪声；
+- 短时信号丢失。
 
-Metrics are reported separately for every dataset, subject, perturbation type, and severity. Synthetic circular shift experiments establish algorithmic channel-phase robustness. They are not described as evidence of real re-wearing robustness unless the source data contain corresponding physical re-wearing metadata.
+指标按数据集、受试者、扰动类型和严重程度分别报告。合成环形平移实验用于确立算法层面的通道相位鲁棒性。除非源数据包含相应的真实重新佩戴元数据，否则不会把它们描述为真实重佩戴鲁棒性的证据。
 
-## 13. PyTorch Lightning and Hydra Runtime
+## 13. PyTorch Lightning 与 Hydra 运行时
 
-Top-level scripts are thin Hydra entry points. Configuration groups select data, model, task, robustness transform, and trainer profile. Resolved configuration is saved with each run.
+顶层脚本是轻量的 Hydra 入口。配置组用于选择数据、模型、任务、鲁棒性变换和 trainer profile。每次运行都会保存解析后的配置。
 
-Default server behavior:
+默认服务器行为：
 
-- BF16 mixed precision on A100;
-- `strategy=auto` for one GPU and DDP for multiple GPUs;
-- `devices=auto`, overridable as `trainer.devices=1`, `2`, `4`, or `8`;
-- gradient accumulation used to preserve a configured effective global batch size;
-- deterministic seeding where supported;
-- checkpointing of model, optimizer, scheduler, EMA teacher, epoch, and global step;
-- restart from `last.ckpt` without resetting the EMA teacher or schedule.
+- 在 A100 上使用 BF16 混合精度；
+- 单卡使用 `strategy=auto`，多卡使用 DDP；
+- `devices=auto`，可通过 `trainer.devices=1`、`2`、`4` 或 `8` 覆盖；
+- 使用梯度累积以维持配置的有效全局 batch size；
+- 在支持处使用确定性随机种子；
+- 对 model、optimizer、scheduler、EMA teacher、epoch 和 global step 做 checkpoint；
+- 从 `last.ckpt` 重启时不重置 EMA teacher 与 schedule。
 
-The run metadata records Git commit, manifest digest, split digest, dependency versions, visible GPU count, world size, per-device batch size, effective global batch size, precision, and seed.
+运行元数据记录 Git commit、manifest 摘要、split 摘要、依赖版本、可见 GPU 数、world size、每设备 batch size、有效全局 batch size、精度和随机种子。
 
-## 14. Outputs
+## 14. 输出
 
-Every run writes to a Hydra output directory containing:
+每次运行都会写入一个 Hydra 输出目录，其中包含：
 
 ```text
 config.yaml
@@ -324,50 +324,50 @@ environment.txt
 checkpoints/
 ```
 
-Evaluation additionally writes `predictions.h5` when configured. Metrics for heterogeneous tasks remain separate; the framework does not manufacture a single aggregate score across regression, classification, and sequence recognition.
+在配置允许时，评测还会额外写出 `predictions.h5`。异构任务的指标保持相互独立；框架不会为回归、分类和序列识别强行合成一个单一的聚合分数。
 
-## 15. Testing Strategy
+## 15. 测试策略
 
-Tests create compact canonical H5 fixtures with 16 channels and deterministic labels. Production code follows test-driven development.
+测试创建包含 16 通道和确定性标签的紧凑 canonical H5 fixture。生产代码遵循测试驱动开发。
 
-Required unit tests cover:
+必须覆盖的单元测试包括：
 
-- manifest validation and lazy H5 access;
-- time-to-sample window conversion and label alignment;
-- split leakage checks, including qwerty `pair_id`;
-- task-balanced sampling under DDP rank partitioning;
-- circular distance and channel-rolling behavior;
-- Ring Attention boundary behavior for channels 15 and 0;
-- numerical equivariance of the Ring Criss-Cross backbone in evaluation mode;
-- masking semantics and loss application only at masked positions;
-- all five task collators, losses, and metrics;
-- checkpoint state for the EMA teacher;
-- Hydra composition and command-line overrides.
+- manifest 校验与惰性 H5 访问；
+- 时间到样本的窗口换算与标签对齐；
+- 划分泄漏检查，包括 qwerty 的 `pair_id`；
+- DDP rank 切分下的任务均衡采样；
+- 环形距离与通道滚动行为；
+- 通道 15 和 0 的 Ring Attention 边界行为；
+- 评测模式下 Ring Criss-Cross 骨干的数值等变性；
+- 掩码语义，以及损失只在被掩码位置生效；
+- 全部五个任务的 collator、损失和指标；
+- EMA teacher 的 checkpoint 状态；
+- Hydra 组合与命令行覆盖。
 
-Integration tests run one CPU `fast_dev_run` for CIRCE-Myo and each pretraining baseline, then one short fine-tune/evaluation path for each task. The local suite does not claim to validate NCCL. `SERVER_A100.md` defines a separate one-batch DDP smoke test for 1, 2, 4, and 8 GPUs.
+集成测试对 CIRCE-Myo 和每个预训练基线各跑一次 CPU `fast_dev_run`，然后对每个任务跑一条短微调/评测路径。本地测试套件不声称验证 NCCL。`SERVER_A100.md` 定义了针对 1、2、4 和 8 张 GPU 的单独单 batch DDP 冒烟测试。
 
-## 16. Documentation
+## 16. 文档
 
-- `README.md`: installation, project map, and five-minute commands.
-- `PRETRAINING.md`: CIRCE-Myo architecture, losses, data mixing, and resume behavior.
-- `DOWNSTREAM_EVALUATION.md`: task labels, metrics, split rules, low-label protocols, and robustness commands.
-- `BASELINES.md`: baseline mechanisms, fidelity boundaries, and fair-comparison rules.
-- `EXPERIMENT_PROTOCOL.md`: main tables, ablations, seeds, budgets, and reporting checklist.
-- `H5_DATA_CONTRACT.md`: fields required from each converter output and validation commands.
-- `SERVER_A100.md`: environment setup and one-to-eight-GPU launch, resume, and troubleshooting commands.
+- `README.md`：安装、项目地图和五分钟上手命令。
+- `PRETRAINING.md`：CIRCE-Myo 架构、损失、数据混合和续训行为。
+- `DOWNSTREAM_EVALUATION.md`：任务标签、指标、划分规则、低标签协议和鲁棒性命令。
+- `BASELINES.md`：基线机制、保真度边界和公平对比规则。
+- `EXPERIMENT_PROTOCOL.md`：主表、消融、随机种子、预算和报告清单。
+- `H5_DATA_CONTRACT.md`：每个转换器输出所必需的字段和校验命令。
+- `SERVER_A100.md`：环境搭建，以及 1 到 8 卡 GPU 的启动、续训和排障命令。
 
-## 17. Acceptance Criteria
+## 17. 验收标准
 
-The implementation is complete when:
+实现满足以下条件时视为完成：
 
-1. Existing five converter tests still pass and converter scripts remain standalone.
-2. A synthetic canonical manifest can run one CPU pretraining step for CIRCE-Myo, BENDR-style, CBraMod-style, and AEMG-style methods.
-3. Synthetic data can run one train/evaluate step for all five downstream tasks.
-4. Split tests prove that subjects, sessions, and qwerty pairs do not leak across partitions.
-5. Ring equivariance tests pass within declared floating-point tolerance.
-6. Hydra commands select models, tasks, trainer devices, label budgets, and robustness settings without source edits.
-7. Checkpoint resume restores the EMA teacher and training step.
-8. Every public command in the Markdown documentation is covered by configuration composition or a smoke test.
-9. The full local test suite passes.
-10. The A100 server smoke-test instructions cover 1, 2, 4, and 8 GPUs and clearly distinguish unverified multi-GPU behavior from locally verified behavior.
+1. 现有五个转换器测试仍然通过，且转换脚本保持独立。
+2. 合成的 canonical manifest 能为 CIRCE-Myo、BENDR 风格、CBraMod 风格和 AEMG 风格方法各跑通一次 CPU 预训练步。
+3. 合成数据能为全部五个下游任务各跑通一次训练/评测步。
+4. 划分测试证明受试者、会话和 qwerty 配对不会跨划分泄漏。
+5. 环形等变测试在声明的浮点容差内通过。
+6. Hydra 命令无需修改源码即可选择模型、任务、trainer 设备、标签预算和鲁棒性设置。
+7. checkpoint 续训能恢复 EMA teacher 和训练步。
+8. Markdown 文档中的每条公开命令都由配置组合或冒烟测试覆盖。
+9. 完整的本地测试套件通过。
+10. A100 服务器冒烟测试说明覆盖 1、2、4 和 8 张 GPU，并清楚区分未验证的多卡行为与本地已验证的行为。
 

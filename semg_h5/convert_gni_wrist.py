@@ -1,4 +1,4 @@
-"""Convert GNI wrist-angle recordings to canonical HDF5."""
+"""将 GNI 腕角录制数据转换为 canonical HDF5。"""
 
 import argparse
 import csv

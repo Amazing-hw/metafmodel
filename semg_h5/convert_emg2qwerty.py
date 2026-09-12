@@ -1,4 +1,4 @@
-"""Convert bilateral emg2qwerty HDF5 sessions into linked canonical wrist records."""
+"""将双侧 emg2qwerty HDF5 session 转换为成对关联的 canonical 单腕记录。"""
 
 import argparse
 import csv

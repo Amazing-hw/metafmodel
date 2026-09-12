@@ -1,4 +1,4 @@
-"""Convert GNI discrete-gesture recordings to canonical HDF5."""
+"""将 GNI 离散手势录制数据转换为 canonical HDF5。"""
 
 import argparse
 import csv

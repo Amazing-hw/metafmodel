@@ -1,16 +1,16 @@
-# Canonical Meta 16-channel sEMG H5 conversion
+# Meta 16 通道 sEMG 规范化 H5 转换
 
-This repository converts five public Meta/CTRL-labs 16-channel wrist sEMG corpora into one per-wrist HDF5 contract.  The converters are deliberately **not** physiological preprocessing pipelines: no channel reordering, filtering, rescaling, polarity correction, clipping, or resampling is performed.  The only representation change is storing `time_s` relative to the first sample; the source path and preprocessing record remain in each output.
+本仓库把 5 个公开的 Meta/CTRL-labs 16 通道腕部 sEMG 语料转换为统一的单腕 HDF5 契约。这些转换器刻意**不是**生理信号预处理流水线：不做通道重排、滤波、缩放、极性校正、截断或重采样。唯一的表示变更，是把 `time_s` 存为相对首个样本的时间；源路径和预处理记录都保留在每份输出中。
 
-## Install
+## 安装
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-## Convert each corpus
+## 转换各个语料
 
-Run each command with the directory containing only the corresponding raw source H5 files.  Use a separate output root from the raw input directory.
+运行每条命令时，工作目录中应只包含对应语料的原始 H5 文件。输出根目录要与原始输入目录分开。
 
 ```bash
 python semg_h5\convert_emg2pose.py --input-root RAW_EMG2POSE --output-root CANONICAL_META
@@ -20,9 +20,9 @@ python semg_h5\convert_gni_handwriting.py --input-root RAW_GNI_HANDWRITING --out
 python semg_h5\convert_gni_wrist.py --input-root RAW_GNI_WRIST --output-root CANONICAL_META
 ```
 
-Each standalone converter validates its source layout, the 16-channel signal shape, sample timestamps, and task-specific labels before writing output; no separate validator command is required.  When an official split CSV is available, supply `--splits-csv SPLITS.csv`; it must contain `split` and one of `path`, `source_file`, or `file`.  Its paths are relative to `--input-root` (or may be bare filenames).  `--split train` filters before conversion.  Do not generate random window-level splits: preserve official session/participant splits for downstream evaluation.  Existing output H5 files are refused by default; pass `--overwrite` only when intentionally regenerating them.
+每个独立转换器在写出结果前，都会校验源数据的目录布局、16 通道信号形状、样本时间戳以及任务专属标签；不需要额外的校验命令。若某语料提供官方划分 CSV，可用 `--splits-csv SPLITS.csv` 传入；该 CSV 必须包含 `split` 列，以及 `path`、`source_file`、`file` 三者之一。其中的路径相对于 `--input-root`（也可以直接是裸文件名）。`--split train` 会在转换前做过滤。不要生成随机的窗口级划分：下游评测必须保留官方的 session/参与者划分。默认拒绝覆盖已存在的输出 H5 文件；只有在确实要重新生成时才传 `--overwrite`。
 
-## Output contract
+## 输出契约
 
 ```text
 CANONICAL_META/
@@ -35,63 +35,64 @@ CANONICAL_META/
   gni_wrist/wrist_angle/...
 ```
 
-Every H5 includes root provenance attributes (`schema_version`, IDs, `official_split`, `source_file`, `preprocessing_json`) and:
+每个 H5 都包含根级溯源属性（`schema_version`、各类 ID、`official_split`、`source_file`、`preprocessing_json`），以及：
 
 ```text
 /signal/emg       float32 [T, 16]
-/signal/time_s    float64 [T], starts at 0
-/labels           task-specific labels plus source_json
-/meta/source_json original source attributes and uncollapsed metadata
-/meta/quality     sample_count, duration_s, nan_count, channel_rms
+/signal/time_s    float64 [T], 从 0 开始
+/labels           任务专属标签，外加 source_json
+/meta/source_json 原始源属性与未折叠的元数据
+/meta/quality     sample_count、duration_s、nan_count、channel_rms
 ```
 
-Task labels are intentionally distinct: `pose` has `joint_angles` and optional `no_ik_failure`; `typing` has `keystrokes` and `prompts`; `discrete_gesture` has `events`; `handwriting` has prompt intervals; and `wrist_angle` has one or more continuous arrays under `/labels/targets`.
+各类任务的标签刻意保持互不相同：`pose` 有 `joint_angles` 和可选的 `no_ik_failure`；`typing` 有 `keystrokes` 和 `prompts`；`discrete_gesture` 有 `events`；`handwriting` 有 prompt 区间；`wrist_angle` 在 `/labels/targets` 下有一个或多个连续数组。
 
-`manifest.csv` has one row per canonical H5 with the fixed columns `path`, `dataset_id`, `task_id`, `subject_id`, `session_id`, `side`, `pair_id`, `official_split`, `sample_count`, `duration_s`, `source_file`, and `source_sha256`.  It is the recommended first-stage filter for a dataloader.
+`manifest.csv` 中每份规范化 H5 占一行，列固定为 `path`、`dataset_id`、`task_id`、`subject_id`、`session_id`、`side`、`pair_id`、`official_split`、`sample_count`、`duration_s`、`source_file` 和 `source_sha256`。推荐数据加载器把这张表作为第一级过滤依据。
 
-## Bilateral typing reconstruction
+## 双腕打字数据的重建
 
-`emg2qwerty` is the only bilateral corpus.  A source session produces two canonical files with the same `pair_id`, one `side=left` and one `side=right`; both contain the session's typing labels.  For a bilateral model, group manifest rows by `pair_id`, require exactly the left/right pair, then align their shared relative clocks.  For a single-wrist pretraining model, treat them as ordinary independent canonical records but retain `pair_id` to avoid participant/session leakage across splits.
+`emg2qwerty` 是唯一的双腕语料。一个源 session 会生成两份规范化文件，二者共享同一个 `pair_id`，一份 `side=left`、一份 `side=right`，且都包含该 session 的打字标签。若要训练双腕模型，请按 `pair_id` 对 manifest 行分组，要求左右恰好成对，然后对齐两者共享的相对时钟。若要训练单腕预训练模型，则把它们当作彼此独立的普通规范化记录，但保留 `pair_id`，以避免同一参与者/session 跨划分泄漏。
 
-## Source-layout expectations
+## 源数据布局约定
 
-The emg2pose converter expects `emg2pose/timeseries` compound fields `emg`, `joint_angles`, and `time` (plus optional `no_ik_failure`).  The emg2qwerty converter expects `emg2qwerty/timeseries` fields `emg_left`, `emg_right`, and `time`; it accepts typing metadata as JSON attributes or structured `keystrokes`/`keylogger` and `prompts` datasets.  The three GNI converters expect a `data` compound dataset with `data.attrs['task']`, a `time` field, and one 16-channel EMG field; `prompts` and `stages` are read as pandas HDF tables when available.
+emg2pose 转换器期望 `emg2pose/timeseries` 复合字段 `emg`、`joint_angles` 和 `time`（外加可选的 `no_ik_failure`）。emg2qwerty 转换器期望 `emg2qwerty/timeseries` 字段 `emg_left`、`emg_right` 和 `time`；打字元数据既接受 JSON 属性形式，也接受结构化的 `keystrokes`/`keylogger` 和 `prompts` 数据集。三个 GNI 转换器期望一个 `data` 复合数据集，带有 `data.attrs['task']`、一个 `time` 字段和一个 16 通道 EMG 字段；`prompts` 和 `stages` 若存在，则按 pandas HDF 表读取。
 
-Unknown source layouts fail fast with the missing field/task in the error message.  This is intentional: it prevents silently producing misaligned foundation-model data from a release variant that needs an explicit reader update.
+遇到未知的源布局会快速失败，并在错误消息中给出缺失的字段/任务。这是刻意设计：避免在某个发布变体需要显式更新读取器时，静默产出错位的基础模型数据。
 
-## Training stack (CIRCE-Myo)
+## 训练栈（CIRCE-Myo）
 
-The repository also contains a foundation-model training stack for the five converted corpora:
+本仓库还包含针对上述 5 个转换后语料的基础模型训练栈：
 
-- `pretrain.py` — self-supervised pretraining (EMA teacher/student masked-latent distillation + ring equivariance)
-- `finetune.py` — per-task fine-tuning with linear-probe / partial / full protocols and 1/5/10/100% label budgets
-- `evaluate.py` — held-out evaluation with in-memory robustness transforms
-- `run_baseline.py` — supervised-TCN, BENDR-like, CBraMod-like, and AEMG-like comparisons
-- `make_splits.py` — deterministic leakage-safe train/val/test assignment
+- `pretrain.py` — 自监督预训练（EMA teacher/student masked-latent 蒸馏 + 环等变性）
+- `finetune.py` — 逐任务微调，支持 linear-probe / partial / full 协议与 1/5/10/100% 标签预算
+- `evaluate.py` — 留存集评测，带内存内鲁棒性变换
+- `run_baseline.py` — supervised-TCN、BENDR-like、CBraMod-like、AEMG-like 对比基线
+- `make_splits.py` — 确定性的防泄漏 train/val/test 划分
 
-Install the training dependencies and run the test suite:
+安装训练依赖并运行测试：
 
 ```bash
 python -m pip install -r requirements-train.txt
 python -m pytest tests -q
 ```
 
-### Five-minute CPU smoke
+### 五分钟 CPU 冒烟
 
-After converting data (or with any canonical `manifest.csv`):
+转换完数据后（或已有任意 canonical `manifest.csv`）：
 
 ```bash
-# 1. Assign deterministic splits for records without an official split.
+# 1. 为没有官方划分的记录分配确定性划分。
 python make_splits.py --manifest CANONICAL_META/manifest.csv --root CANONICAL_META --output CANONICAL_META/splits.csv --seed 0
 
-# 2. One pretraining step (fast_dev_run). Paths must be absolute.
+# 2. 一步预训练（fast_dev_run）。路径必须为绝对路径。
 python pretrain.py trainer=cpu_smoke data.root=CANONICAL_META data.manifest_path=CANONICAL_META/splits.csv
 
-# 3. One fine-tuning epoch with a checkpoint, then evaluate it.
+# 3. 微调一个 epoch 并存检查点，然后评测。
 python finetune.py trainer=a100_ddp trainer.accelerator=cpu trainer.devices=1 trainer.max_epochs=1 \
   task=pose data.root=CANONICAL_META data.manifest_path=CANONICAL_META/splits.csv
 python evaluate.py trainer=cpu_smoke task=pose checkpoint_path=outputs/<run>/checkpoints/last.ckpt \
   data.root=CANONICAL_META data.manifest_path=CANONICAL_META/splits.csv
 ```
 
-Every run writes its resolved config, manifest digest, environment snapshot, metrics, and checkpoints into `outputs/<date>/<time>/`.  See `PRETRAINING.md`, `DOWNSTREAM_EVALUATION.md`, `BASELINES.md`, `EXPERIMENT_PROTOCOL.md`, `H5_DATA_CONTRACT.md`, and `SERVER_A100.md` for the full documentation.
+每次运行都会把解析后的配置、manifest 摘要、环境快照、指标和检查点写入 `outputs/<date>/<time>/`。完整文档见 `PRETRAINING.md`、`DOWNSTREAM_EVALUATION.md`、`BASELINES.md`、`EXPERIMENT_PROTOCOL.md`、`H5_DATA_CONTRACT.md` 和 `SERVER_A100.md`。
+

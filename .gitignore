@@ -16,3 +16,6 @@ multirun/
 # Lightning artifacts written when running outside the Hydra run dir
 lightning_logs/
 checkpoints/
+
+# 第三方 sEMG 数据集原始文件（245 GB，CC BY-NC-SA / CC BY-NC 许可，禁止入库与再分发）
+emg_data/
