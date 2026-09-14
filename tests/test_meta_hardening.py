@@ -204,3 +204,68 @@ def test_qwerty_pair_commit_rolls_back_first_replacement_on_second_failure(tmp_p
 
     assert [output.read_bytes() for output in outputs] == originals
     assert not list(outputs[0].parent.glob("*.tmp"))
+
+
+def test_qwerty_reader_accepts_the_released_session_layout(tmp_path):
+    """The release spells identity as user/session_name and key times as start/end.
+
+    The converter was written against the design document's schema
+    (subject_id/session_id, press_s/release_s, a plain-text prompts table), so
+    every real session failed to read and the typing target was unavailable.
+    """
+    source = tmp_path / "2020-08-13-1597354281-keystrokes.hdf5"
+    dtype = np.dtype(
+        [("emg_left", np.float32, (16,)), ("emg_right", np.float32, (16,)), ("time", np.float64)]
+    )
+    rows = np.zeros(4, dtype=dtype)
+    rows["time"] = np.arange(4) / 2000 + 100.0
+    with h5py.File(source, "w") as h5:
+        group = h5.create_group("emg2qwerty")
+        group.attrs["user"] = "09456349"
+        group.attrs["session_name"] = "2020-08-13-1597354281-keystrokes"
+        group.attrs["keystrokes"] = json.dumps(
+            [{"ascii": 97, "key": "a", "start": 100.0005, "end": 100.001}]
+        )
+        group.attrs["prompts"] = json.dumps(
+            [
+                {"name": "emg_left", "start": 100.0, "end": 100.004,
+                 "payload": None, "payload_type": None},
+                {"name": "text_prompt", "start": 100.0, "end": 100.004,
+                 "payload": {"prompt_num": 0, "text": "a"}, "payload_type": "text_prompt"},
+            ]
+        )
+        group.create_dataset("timeseries", data=rows)
+    converter = _load_converter("convert_emg2qwerty")
+
+    records = converter.read_emg2qwerty(source)
+
+    assert len(records) == 2
+    assert {record.side for record in records} == {"left", "right"}
+    left = next(record for record in records if record.side == "left")
+    assert left.subject_id == "emg2qwerty:09456349"
+    assert left.session_id == "emg2qwerty:2020-08-13-1597354281-keystrokes"
+    assert left.labels["keystrokes"] == [
+        {"key": "a", "press_s": pytest.approx(0.0005), "release_s": pytest.approx(0.001)}
+    ]
+    # Only the text_prompt segment becomes a prompt; emg_left stays in provenance.
+    assert [prompt["text"] for prompt in left.labels["prompts"]] == ["a"]
+
+
+def test_qwerty_reader_rejects_a_session_with_no_text_prompts(tmp_path):
+    source = tmp_path / "no-text.hdf5"
+    dtype = np.dtype(
+        [("emg_left", np.float32, (16,)), ("emg_right", np.float32, (16,)), ("time", np.float64)]
+    )
+    rows = np.zeros(4, dtype=dtype)
+    with h5py.File(source, "w") as h5:
+        group = h5.create_group("emg2qwerty")
+        group.attrs["user"] = "u1"
+        group.attrs["keystrokes"] = json.dumps([{"key": "a", "start": 0.0005, "end": 0.001}])
+        group.attrs["prompts"] = json.dumps(
+            [{"name": "emg_left", "start": 0.0, "end": 0.004, "payload": None, "payload_type": None}]
+        )
+        group.create_dataset("timeseries", data=rows)
+    converter = _load_converter("convert_emg2qwerty")
+
+    with pytest.raises(ValueError, match="none carry text"):
+        converter.read_emg2qwerty(source)

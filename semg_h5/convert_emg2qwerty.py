@@ -340,12 +340,30 @@ def _required_value(row: dict[str, Any], names: tuple[str, ...], label: str) -> 
     raise ValueError(f"{label} row lacks one of {names}")
 
 
+def _prompt_text(row: dict[str, Any]) -> str | None:
+    """Return the typed text of a prompt row, or None for a non-text segment.
+
+    The released sessions keep the string under ``payload.text`` on rows whose
+    ``payload_type`` is ``text_prompt``; a structured ``prompts`` dataset would
+    already expose ``text`` directly.  The same attribute also holds recording
+    segments (``emg_left``, ``Intro``, ``Metadata``, ...) that carry no text.
+    """
+    for name in ("text", "prompt"):
+        if name in row:
+            return str(row[name])
+    payload = row.get("payload")
+    if isinstance(payload, dict) and payload.get("text") is not None:
+        return str(payload["text"])
+    return None
+
+
 def _relative_qwerty_labels(group: h5py.Group, metadata: dict[str, Any], origin_s: float) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]]]:
     keystrokes = []
     source_keystrokes = _metadata_rows(group, metadata, ("keystrokes", "keylogger"), "keystrokes")
     for row in source_keystrokes:
-        press_s = float(_required_value(row, ("press_s", "press", "down_s", "down"), "keystroke"))
-        release_s = float(_required_value(row, ("release_s", "release", "up_s", "up"), "keystroke"))
+        # The release spells key down/up as `start`/`end`.
+        press_s = float(_required_value(row, ("press_s", "press", "down_s", "down", "start"), "keystroke"))
+        release_s = float(_required_value(row, ("release_s", "release", "up_s", "up", "end"), "keystroke"))
         if not np.isfinite((press_s, release_s)).all():
             raise ValueError("keystroke times must be finite")
         if press_s > release_s:
@@ -358,6 +376,12 @@ def _relative_qwerty_labels(group: h5py.Group, metadata: dict[str, Any], origin_
     prompts = []
     source_prompts = _metadata_rows(group, metadata, ("prompts", "prompt"), "prompts")
     for row in source_prompts:
+        text = _prompt_text(row)
+        if text is None:
+            # The same attribute also holds recording segments (emg_left,
+            # emg_right, Intro, Metadata, ...) that carry no typed text.  They
+            # stay in the source rows for provenance but are not prompts.
+            continue
         start_s = float(_required_value(row, ("start_s", "start"), "prompt"))
         end_s = float(_required_value(row, ("end_s", "end"), "prompt"))
         if not np.isfinite((start_s, end_s)).all():
@@ -365,10 +389,16 @@ def _relative_qwerty_labels(group: h5py.Group, metadata: dict[str, Any], origin_
         if start_s > end_s:
             raise ValueError("prompt start time must not exceed end time")
         prompts.append({
-            "text": str(_required_value(row, ("text", "prompt"), "prompt")),
+            "text": text,
             "start_s": start_s - origin_s,
             "end_s": end_s - origin_s,
         })
+    if source_prompts and not prompts:
+        raise ValueError(
+            "emg2qwerty session has prompt rows but none carry text, so the typing "
+            "target would be empty. Expected a 'text'/'prompt' field or a payload_type "
+            "of 'text_prompt'."
+        )
     return {"keystrokes": keystrokes, "prompts": prompts}, {"keystrokes": source_keystrokes, "prompts": source_prompts}
 
 
@@ -392,8 +422,12 @@ def read_emg2qwerty(path: str | Path, official_split: str = "unknown", source_fi
         if len(left) == 0:
             raise ValueError("emg2qwerty records must contain at least one sample")
         metadata = {str(key): _decode_value(value) for key, value in group.attrs.items()}
-        subject_raw = str(metadata.get("subject_id", path.parent.name))
-        session_raw = str(metadata.get("session_id", path.stem))
+        # The released sessions carry the subject as `user` and the session as
+        # `session_name`; `subject_id`/`session_id` are absent.  Falling back to
+        # the parent directory would give every subject in the release the same
+        # id and collapse leakage-safe subject grouping into one group.
+        subject_raw = str(metadata.get("subject_id") or metadata.get("user") or path.parent.name)
+        session_raw = str(metadata.get("session_id") or metadata.get("session_name") or path.stem)
         pair_id = f"emg2qwerty:{session_raw}"
         source_time_origin_s = float(time_s[0])
         labels, source_label_rows = _relative_qwerty_labels(group, metadata, source_time_origin_s)
