@@ -271,7 +271,7 @@ def test_qwerty_reader_rejects_a_session_with_no_text_prompts(tmp_path):
         converter.read_emg2qwerty(source)
 
 
-def _write_released_pose(path, *, user, session, side="left"):
+def _write_released_pose(path, *, user, session, side="left", filename=None):
     """Write a session shaped like the actual emg2pose release."""
     rows = np.zeros(2, dtype=np.dtype([
         ("time", np.float64), ("joint_angles", np.float32, (20,)), ("emg", np.float32, (16,)),
@@ -283,6 +283,8 @@ def _write_released_pose(path, *, user, session, side="left"):
             "user": user, "session": session, "side": side,
             "stage": "ThumbsUpDown", "split": "val", "generalization": "user",
         })
+        if filename is not None:
+            group.attrs["filename"] = filename
         group.create_dataset("timeseries", data=rows)
 
 
@@ -292,17 +294,20 @@ def test_pose_reader_accepts_the_released_session_layout(tmp_path):
     Reading the parent directory instead gave every subject the same id, which
     collapses leakage-safe subject grouping into a single group.
     """
+    session = "2022-04-07-1649318400-8125c-cv-emg-pose-train@2"
     source = tmp_path / "recording_left.hdf5"
     _write_released_pose(
-        source, user="29ddab35d7",
-        session="2022-04-07-1649318400-8125c-cv-emg-pose-train@2",
+        source, user="29ddab35d7", session=session,
+        filename=f"{session}-recording-10_left",
     )
     converter = _load_converter("convert_emg2pose")
 
     record = converter._read_emg2pose(source)
 
     assert record.subject_id == "emg2pose:29ddab35d7"
-    assert record.session_id == "emg2pose:2022-04-07-1649318400-8125c-cv-emg-pose-train@2"
+    # `session` alone is shared by every recording in the session, so the unique
+    # recording name identifies the record.
+    assert record.session_id == f"emg2pose:{session}-recording-10"
     assert record.side == "left"
     assert record.labels["stage"] == "ThumbsUpDown"
     assert record.labels["joint_angles"].shape == (2, 20)
@@ -354,3 +359,33 @@ def test_pose_provenance_summarizes_instead_of_duplicating_the_target_array(tmp_
 
     raw_bytes = sample_count * (8 + 20 * 4 + 16 * 4)
     assert output.stat().st_size < raw_bytes * 2
+
+
+def test_pose_recordings_within_one_session_get_distinct_output_paths(tmp_path):
+    """Every recording in a session carries the same `session` attribute.
+
+    Keying the output path on it made the recordings collide, so a real corpus
+    run died with FileExistsError after the first couple of files.
+    """
+    converter = _load_converter("convert_emg2pose")
+    session = "2022-04-07-1649318400-8125c-cv-emg-pose-train@2"
+    paths = set()
+    for recording in ("10", "11"):
+        name = f"{session}-recording-{recording}_left"
+        source = tmp_path / f"{name}.hdf5"
+        rows = np.zeros(2, dtype=np.dtype([
+            ("time", np.float64), ("joint_angles", np.float32, (20,)), ("emg", np.float32, (16,)),
+        ]))
+        with h5py.File(source, "w") as h5:
+            group = h5.create_group("emg2pose")
+            group.attrs.update({
+                "user": "29ddab35d7", "session": session, "filename": name,
+                "side": "left", "stage": "ThumbsUpDown", "split": "train",
+            })
+            group.create_dataset("timeseries", data=rows)
+        record = converter._read_emg2pose(source)
+        paths.add(str(converter._output_relative_path(record)))
+
+    assert len(paths) == 2
+    assert all(path.endswith("_left.h5") for path in paths)
+    assert not any("_left_left.h5" in path for path in paths)

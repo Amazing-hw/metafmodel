@@ -305,7 +305,17 @@ def _read_emg2pose(path: str | Path, official_split: str = "unknown", source_fil
         # directory would give every subject the same id and collapse
         # leakage-safe subject grouping into one group.
         subject_raw = str(metadata.get("subject_id") or metadata.get("user") or path.parent.name)
-        session_raw = str(metadata.get("session_id") or metadata.get("session") or path.stem)
+        # A recording session holds many files that all share the same `session`
+        # attribute, so it cannot identify an output record.  The `filename`
+        # attribute is unique per file; drop its trailing side so the output path
+        # does not spell the side twice.
+        session_raw = str(metadata.get("session_id") or "")
+        if not session_raw:
+            stem = str(metadata.get("filename") or path.stem)
+            side = str(metadata.get("side", ""))
+            if side and stem.endswith(f"_{side}"):
+                stem = stem[: -(len(side) + 1)]
+            session_raw = stem
         labels: dict[str, Any] = {"joint_angles": joint_angles}
         if "no_ik_failure" in fields:
             labels["no_ik_failure"] = data["no_ik_failure"]
