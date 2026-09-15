@@ -281,8 +281,12 @@ def _read_emg2pose(path: str | Path, official_split: str = "unknown", source_fil
             if no_ik_failure.ndim == 0 or no_ik_failure.shape[0] != len(emg):
                 raise ValueError("no_ik_failure must align with EMG samples")
         metadata = {str(key): _decode_value(value) for key, value in group.attrs.items()}
-        subject_raw = str(metadata.get("subject_id", path.parent.name))
-        session_raw = str(metadata.get("session_id", path.stem))
+        # The release carries the subject as `user` and the session as `session`;
+        # `subject_id`/`session_id` are absent.  Falling back to the parent
+        # directory would give every subject the same id and collapse
+        # leakage-safe subject grouping into one group.
+        subject_raw = str(metadata.get("subject_id") or metadata.get("user") or path.parent.name)
+        session_raw = str(metadata.get("session_id") or metadata.get("session") or path.stem)
         labels: dict[str, Any] = {"joint_angles": joint_angles}
         if "no_ik_failure" in fields:
             labels["no_ik_failure"] = data["no_ik_failure"]

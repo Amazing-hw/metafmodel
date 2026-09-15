@@ -269,3 +269,53 @@ def test_qwerty_reader_rejects_a_session_with_no_text_prompts(tmp_path):
 
     with pytest.raises(ValueError, match="none carry text"):
         converter.read_emg2qwerty(source)
+
+
+def _write_released_pose(path, *, user, session, side="left"):
+    """Write a session shaped like the actual emg2pose release."""
+    rows = np.zeros(2, dtype=np.dtype([
+        ("time", np.float64), ("joint_angles", np.float32, (20,)), ("emg", np.float32, (16,)),
+    ]))
+    rows["time"] = np.arange(2) / 2000 + 100.0
+    with h5py.File(path, "w") as h5:
+        group = h5.create_group("emg2pose")
+        group.attrs.update({
+            "user": user, "session": session, "side": side,
+            "stage": "ThumbsUpDown", "split": "val", "generalization": "user",
+        })
+        group.create_dataset("timeseries", data=rows)
+
+
+def test_pose_reader_accepts_the_released_session_layout(tmp_path):
+    """The release spells identity as user/session, not subject_id/session_id.
+
+    Reading the parent directory instead gave every subject the same id, which
+    collapses leakage-safe subject grouping into a single group.
+    """
+    source = tmp_path / "recording_left.hdf5"
+    _write_released_pose(
+        source, user="29ddab35d7",
+        session="2022-04-07-1649318400-8125c-cv-emg-pose-train@2",
+    )
+    converter = _load_converter("convert_emg2pose")
+
+    record = converter._read_emg2pose(source)
+
+    assert record.subject_id == "emg2pose:29ddab35d7"
+    assert record.session_id == "emg2pose:2022-04-07-1649318400-8125c-cv-emg-pose-train@2"
+    assert record.side == "left"
+    assert record.labels["stage"] == "ThumbsUpDown"
+    assert record.labels["joint_angles"].shape == (2, 20)
+
+
+def test_pose_reader_keeps_distinct_subjects_distinct(tmp_path):
+    converter = _load_converter("convert_emg2pose")
+    _write_released_pose(tmp_path / "a.hdf5", user="aaaa1111", session="s1")
+    _write_released_pose(tmp_path / "b.hdf5", user="bbbb2222", session="s2")
+
+    first = converter._read_emg2pose(tmp_path / "a.hdf5")
+    second = converter._read_emg2pose(tmp_path / "b.hdf5")
+
+    assert first.subject_id != second.subject_id
+    assert first.subject_id == "emg2pose:aaaa1111"
+    assert second.subject_id == "emg2pose:bbbb2222"
