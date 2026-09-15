@@ -61,3 +61,32 @@ def test_invalid_official_split_is_rejected(tmp_path):
     ).to_csv(manifest, index=False)
     with pytest.raises(ValueError, match="invalid official_split"):
         main(["--manifest", str(manifest), "--root", str(tmp_path), "--output", str(tmp_path / "out.csv"), "--seed", "1"])
+
+
+def test_official_splits_spanning_one_subject_are_preserved(tmp_path, capsys):
+    """A release may publish session-level splits that put one subject's
+    recordings in several splits.
+
+    emg2pose does exactly that to define its stage-generalization benchmark, so
+    the leakage assertion must apply only to the splits we assign ourselves.
+    """
+    for name in ("a.h5", "b.h5"):
+        (tmp_path / name).write_bytes(b"x")
+    manifest = tmp_path / "manifest.csv"
+    pd.DataFrame(
+        {
+            "path": ["a.h5", "b.h5"], "dataset_id": ["d", "d"], "task_id": ["t", "t"],
+            "subject_id": ["s", "s"], "session_id": ["x", "y"], "side": ["right", "right"],
+            "pair_id": ["", ""], "official_split": ["train", "test"],
+            "sample_count": [1, 1], "duration_s": [0.0, 0.0],
+            "source_file": ["a.h5", "b.h5"], "source_sha256": ["0" * 64, "1" * 64],
+        }
+    ).to_csv(manifest, index=False)
+    output = tmp_path / "split.csv"
+
+    main(["--manifest", str(manifest), "--root", str(tmp_path),
+          "--output", str(output), "--seed", "1"])
+
+    written = pd.read_csv(output)
+    assert set(written.split) == {"train", "test"}
+    assert "the release's own protocol" in capsys.readouterr().out
