@@ -106,6 +106,25 @@ def _release_manifest_lock(handle) -> None:
         handle.close()
 
 
+def _labels_provenance(labels: dict[str, Any]) -> dict[str, Any]:
+    """Summarize labels for the provenance dump without duplicating arrays.
+
+    Each array in ``labels`` is written as its own HDF5 dataset; expanding it
+    into JSON as well would store the same numbers twice as text.
+    """
+
+    def summarize(value: Any) -> Any:
+        if isinstance(value, np.ndarray):
+            return {"array_shape": list(value.shape), "array_dtype": str(value.dtype)}
+        if isinstance(value, dict):
+            return {key: summarize(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [summarize(item) for item in value]
+        return value
+
+    return summarize(labels)
+
+
 def _json_default(value: Any) -> Any:
     if isinstance(value, np.generic):
         return value.item()
@@ -164,7 +183,7 @@ def _write_record_contents(temporary: Path, record: CanonicalRecord) -> None:
         signal.create_dataset("emg", data=emg, compression="gzip")
         signal.create_dataset("time_s", data=relative_time_s)
         labels = h5.create_group("labels")
-        labels.create_dataset("source_json", data=json.dumps(record.labels, default=_json_default, sort_keys=True), dtype=h5py.string_dtype("utf-8"))
+        labels.create_dataset("source_json", data=json.dumps(_labels_provenance(record.labels), default=_json_default, sort_keys=True), dtype=h5py.string_dtype("utf-8"))
         text = h5py.string_dtype("utf-8")
         labels.create_dataset("keystrokes", data=_structured_table(record.labels.get("keystrokes", []), [("key", text), ("press_s", np.float64), ("release_s", np.float64)]))
         labels.create_dataset("prompts", data=_structured_table(record.labels.get("prompts", []), [("text", text), ("start_s", np.float64), ("end_s", np.float64)]))

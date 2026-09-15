@@ -84,6 +84,25 @@ def _decode(value: Any) -> Any:
     return value
 
 
+def _labels_provenance(labels: dict[str, Any]) -> dict[str, Any]:
+    """Summarize labels for the provenance dump without duplicating arrays.
+
+    Each array in ``labels`` is written as its own HDF5 dataset; expanding it
+    into JSON as well would store the same numbers twice as text.
+    """
+
+    def summarize(value: Any) -> Any:
+        if isinstance(value, np.ndarray):
+            return {"array_shape": list(value.shape), "array_dtype": str(value.dtype)}
+        if isinstance(value, dict):
+            return {key: summarize(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [summarize(item) for item in value]
+        return value
+
+    return summarize(labels)
+
+
 def _json_default(value: Any) -> Any:
     return _decode(value) if isinstance(value, (bytes, np.generic, np.ndarray)) else str(value)
 
@@ -172,7 +191,7 @@ def _write(path: str | Path, record: dict[str, Any], *, overwrite: bool) -> None
     with _replace_after_success(temporary, path), h5py.File(temporary, "w") as h5:
         h5.attrs.update({"schema_version": SCHEMA_VERSION, **{key: record[key] for key in ("dataset_id", "task_id", "subject_id", "session_id", "side", "pair_id", "official_split", "source_file")}, "sample_rate_hz": SAMPLE_RATE_HZ, "preprocessing_json": json.dumps(record["preprocessing"], default=_json_default, sort_keys=True)})
         signal = h5.create_group("signal"); signal.create_dataset("emg", data=record["emg"].astype(np.float32, copy=False), compression="gzip"); signal.create_dataset("time_s", data=relative_time)
-        text = h5py.string_dtype("utf-8"); labels = h5.create_group("labels"); labels.create_dataset("source_json", data=json.dumps(record["labels"], default=_json_default, sort_keys=True), dtype=text)
+        text = h5py.string_dtype("utf-8"); labels = h5.create_group("labels"); labels.create_dataset("source_json", data=json.dumps(_labels_provenance(record["labels"]), default=_json_default, sort_keys=True), dtype=text)
         targets = labels.create_group("targets")
         for name, values in record["labels"]["targets"].items(): targets.create_dataset(str(name), data=np.asarray(values))
         if "stage" in record["labels"]: labels.create_dataset("stage", data=str(record["labels"]["stage"]), dtype=text)

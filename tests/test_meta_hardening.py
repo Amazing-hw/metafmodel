@@ -319,3 +319,38 @@ def test_pose_reader_keeps_distinct_subjects_distinct(tmp_path):
     assert first.subject_id != second.subject_id
     assert first.subject_id == "emg2pose:aaaa1111"
     assert second.subject_id == "emg2pose:bbbb2222"
+
+
+def test_pose_provenance_summarizes_instead_of_duplicating_the_target_array(tmp_path):
+    """Serializing labels to JSON stored the target array twice.
+
+    A 166k-sample pose record was 25 MB of data but a 92 MB file, because
+    labels/source_json expanded the whole joint_angles array into text on top of
+    the float32 dataset.
+    """
+    sample_count = 4000
+    rows = np.zeros(sample_count, dtype=np.dtype([
+        ("time", np.float64), ("joint_angles", np.float32, (20,)), ("emg", np.float32, (16,)),
+    ]))
+    rows["time"] = np.arange(sample_count) / 2000 + 100.0
+    rows["joint_angles"] = (np.arange(sample_count * 20, dtype=np.float32) % 7).reshape(sample_count, 20)
+    source = tmp_path / "recording_left.hdf5"
+    with h5py.File(source, "w") as h5:
+        group = h5.create_group("emg2pose")
+        group.attrs.update({"user": "u", "session": "s", "side": "left"})
+        group.create_dataset("timeseries", data=rows)
+    converter = _load_converter("convert_emg2pose")
+
+    row = converter.convert_file(source, tmp_path / "out")
+    output = tmp_path / "out" / row["path"]
+
+    with h5py.File(output, "r") as h5:
+        provenance = json.loads(h5["labels/source_json"].asstr()[()])
+        assert provenance["joint_angles"] == {
+            "array_shape": [sample_count, 20], "array_dtype": "float32",
+        }
+        # The real values still live in their own dataset.
+        assert np.array_equal(h5["labels/joint_angles"][:], rows["joint_angles"])
+
+    raw_bytes = sample_count * (8 + 20 * 4 + 16 * 4)
+    assert output.stat().st_size < raw_bytes * 2
