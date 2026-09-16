@@ -42,6 +42,9 @@ def test_preflight_script_inventory():
         "03_SmokeTest.ps1",
         "04_TrainBaseline.ps1",
         "05_Pretrain.ps1",
+        "06_Finetune.ps1",
+        "07_Evaluate.ps1",
+        "08_Robustness.ps1",
     ]
     assert [name for name in required if not (SCRIPT_ROOT / name).is_file()] == []
 
@@ -223,3 +226,44 @@ def test_resume_pretrain_requires_checkpoint():
     output = result.stdout + result.stderr
     assert result.returncode != 0
     assert "ResumeFrom" in output
+
+
+def test_finetune_dry_run_supports_probe_and_label_budget():
+    result = run_script(
+        "06_Finetune.ps1", "-Task", "pose", "-FinetuneMode", "probe",
+        "-LabelBudget", "0.1", "-PretrainedCheckpoint",
+        r"D:\Fmodel\runs\pretrain\checkpoints\last.ckpt", "-DryRun",
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "finetune.py" in output
+    assert "finetune_mode=probe" in output
+    assert "label_budget=0.1" in output
+
+
+def test_evaluation_dry_run_requires_checkpoint_and_keeps_output_explicit():
+    result = run_script(
+        "07_Evaluate.ps1", "-Task", "pose", "-CheckpointPath",
+        r"D:\Fmodel\runs\finetune\pose\checkpoints\last.ckpt", "-DryRun",
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "evaluate.py" in output
+    assert "checkpoint_path=" in output
+    assert "output_dir=" in output
+
+
+def test_robustness_all_dry_run_uses_separate_condition_outputs():
+    result = run_script(
+        "08_Robustness.ps1", "-Task", "pose", "-Condition", "All",
+        "-CheckpointPath", r"D:\Fmodel\runs\finetune\pose\checkpoints\last.ckpt",
+        "-DryRun",
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    for condition in [
+        "none", "channel_rotation", "channel_dropout", "gain_drift",
+        "additive_noise", "temporal_loss",
+    ]:
+        assert f"robustness={condition}" in output
+        assert rf"robustness\pose\{condition}" in output
