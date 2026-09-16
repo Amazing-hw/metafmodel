@@ -27,6 +27,7 @@ def run_script(name: str, *arguments: str) -> subprocess.CompletedProcess[str]:
         ],
         cwd=ROOT,
         text=True,
+        encoding="utf-8",
         capture_output=True,
         check=False,
     )
@@ -38,6 +39,8 @@ def test_preflight_script_inventory():
         "00_Preflight.ps1",
         "01_AuditCanonical.ps1",
         "02_PrepareSplits.ps1",
+        "03_SmokeTest.ps1",
+        "04_TrainBaseline.ps1",
     ]
     assert [name for name in required if not (SCRIPT_ROOT / name).is_file()] == []
 
@@ -57,6 +60,7 @@ def test_all_powershell_scripts_parse():
         [str(POWERSHELL), "-NoProfile", "-Command", command],
         cwd=ROOT,
         text=True,
+        encoding="utf-8",
         capture_output=True,
         check=False,
     )
@@ -110,3 +114,48 @@ def test_split_dry_run_keeps_protocol_outputs_separate(
     assert expected_manifest in output
     assert expected_output in output
     assert "make_splits.py" in output
+
+
+def test_all_task_smoke_dry_run_is_bounded_and_windows_safe():
+    result = run_script("03_SmokeTest.ps1", "-Task", "All", "-DryRun")
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert output.count("finetune.py") == 5
+    for task in ["pose", "wrist_angle", "discrete_gesture", "handwriting", "typing"]:
+        assert f"task={task}" in output
+    assert output.count("trainer=cpu_smoke") == 5
+    assert output.count("data.num_workers=0") == 5
+
+
+@pytest.mark.parametrize("model", ["supervised_tcn", "bendr", "cbramod", "aemg"])
+def test_baseline_finetune_dry_run_supports_declared_models(model: str):
+    result = run_script(
+        "04_TrainBaseline.ps1",
+        "-Model",
+        model,
+        "-Stage",
+        "finetune",
+        "-Task",
+        "pose",
+        "-DryRun",
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "run_baseline.py" in output
+    assert f"model={model}" in output
+    assert "stage=finetune" in output
+
+
+def test_supervised_tcn_pretrain_is_rejected():
+    result = run_script(
+        "04_TrainBaseline.ps1",
+        "-Model",
+        "supervised_tcn",
+        "-Stage",
+        "pretrain",
+        "-DryRun",
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "supervised_tcn" in output
+    assert "pretrain" in output
