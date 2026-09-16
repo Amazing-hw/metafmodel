@@ -27,6 +27,20 @@ optimizer:
   warmup_steps: 1000
   max_steps: 100000
 
+# The corpus is far too large for an epoch to be a useful unit: the training
+# split holds 4.1M batches at the default window and batch size, so an
+# epoch-based schedule would leave the cosine decay flat for 99% of the run and
+# never reach the first validation.  Stop on the same step count the schedule
+# is built from, and validate -- and therefore checkpoint -- periodically.
+trainer:
+  max_epochs: -1
+  max_steps: ${optimizer.max_steps}
+  check_val_every_n_epoch: null
+  val_check_interval: 2000
+  # One full pass over the validation split is 539k batches, so a validation
+  # budget rather than a full sweep keeps the cadence affordable.
+  limit_val_batches: 2000
+
 # Run inside the Hydra output directory so checkpoints, tensorboard logs, and
 # metadata all land next to the resolved config. Paths passed from the CLI
 # (data.root, manifest_path, checkpoint_path) must therefore be absolute.
