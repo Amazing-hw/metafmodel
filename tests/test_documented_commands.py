@@ -1,4 +1,4 @@
-"""The public documents must name every public entry point."""
+"""The standalone public documents must name every public entry point."""
 
 from __future__ import annotations
 
@@ -11,13 +11,14 @@ def test_public_documents_include_all_entry_points():
         (root / name).read_text(encoding="utf-8")
         for name in [
             "README.md",
-            "PRETRAINING.md",
-            "DOWNSTREAM_EVALUATION.md",
-            "BASELINES.md",
-            "SERVER_A100.md",
+            "docs/META16_TRAINING_WORKFLOW.md",
+            "docs/POWERSHELL_SCRIPT_REFERENCE.md",
         ]
     )
-    for command in ["pretrain.py", "finetune.py", "evaluate.py", "run_baseline.py", "make_splits.py"]:
+    for command in [
+        "pretrain.py", "finetune.py", "evaluate.py", "run_baseline.py",
+        "make_splits.py", "audit_canonical.py",
+    ]:
         assert command in text
 
 
@@ -25,58 +26,38 @@ def test_training_stack_documents_exist():
     root = Path(__file__).parents[1]
     for name in [
         "README.md",
-        "PRETRAINING.md",
-        "DOWNSTREAM_EVALUATION.md",
-        "BASELINES.md",
-        "EXPERIMENT_PROTOCOL.md",
-        "H5_DATA_CONTRACT.md",
-        "SERVER_A100.md",
+        "docs/META16_TRAINING_WORKFLOW.md",
+        "docs/POWERSHELL_SCRIPT_REFERENCE.md",
     ]:
         assert (root / name).is_file(), f"missing {name}"
 
 
-def test_pretraining_docs_limit_deterministic_resume_to_epoch_boundaries():
+def test_workflow_documents_all_powershell_stages():
     root = Path(__file__).parents[1]
     text = "\n".join(
         (root / name).read_text(encoding="utf-8")
-        for name in ["PRETRAINING.md", "SERVER_A100.md"]
+        for name in [
+            "docs/META16_TRAINING_WORKFLOW.md",
+            "docs/POWERSHELL_SCRIPT_REFERENCE.md",
+        ]
     )
-    assert "epoch-boundary" in text
-    assert "mid-epoch resume replays deterministically" not in text
-
-
-def test_pretraining_commands_use_reproducible_absolute_path_variables():
-    root = Path(__file__).parents[1]
-    server_text = (root / "SERVER_A100.md").read_text(encoding="utf-8")
-    text = "\n".join(
-        (root / name).read_text(encoding="utf-8")
-        for name in ["PRETRAINING.md", "SERVER_A100.md"]
-    )
-
-    for expected in [
-        "epoch-boundary",
-        'CANONICAL_META="/absolute/path/to/canonical_meta"',
-        'RUN_DIR="/absolute/path/to/outputs/run"',
-        'data.root="${CANONICAL_META}"',
-        'data.manifest_path="${CANONICAL_META}/splits.csv"',
-        'resume_from="${RUN_DIR}/checkpoints/last.ckpt"',
-        "+data.task_id=pose objective.kinematic_dim=20",
+    for script in [
+        "00_Preflight.ps1", "01_AuditCanonical.ps1", "02_PrepareSplits.ps1",
+        "03_SmokeTest.ps1", "04_TrainBaseline.ps1", "05_Pretrain.ps1",
+        "06_Finetune.ps1", "07_Evaluate.ps1", "08_Robustness.ps1",
+        "RunPipeline.ps1",
     ]:
+        assert script in text
+
+
+def test_workflow_documents_state_protocol_and_completion_limits():
+    root = Path(__file__).parents[1]
+    text = "\n".join(
+        (root / name).read_text(encoding="utf-8")
+        for name in [
+            "docs/META16_TRAINING_WORKFLOW.md",
+            "docs/POWERSHELL_SCRIPT_REFERENCE.md",
+        ]
+    )
+    for expected in ["Official", "StrictSubject", "Pilot", "100,000", "not run"]:
         assert expected in text
-    for prohibited in [
-        "data.root=...",
-        "data.manifest_path=...",
-        "outputs/<run>",
-        "supplied no independent gradient",
-        "...",
-    ]:
-        assert prohibited not in text
-    device_run_dirs = {
-        device: f'RUN_DIR_{device}="/absolute/path/to/outputs/run_{device}"'
-        for device in [1, 2, 4, 8]
-    }
-    for device, definition in device_run_dirs.items():
-        variable = f"RUN_DIR_{device}"
-        assert definition in server_text
-        assert f'hydra.run.dir="${{{variable}}}"' in server_text
-    assert len(set(device_run_dirs.values())) == 4
