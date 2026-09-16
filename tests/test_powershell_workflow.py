@@ -45,6 +45,7 @@ def test_preflight_script_inventory():
         "06_Finetune.ps1",
         "07_Evaluate.ps1",
         "08_Robustness.ps1",
+        "RunPipeline.ps1",
     ]
     assert [name for name in required if not (SCRIPT_ROOT / name).is_file()] == []
 
@@ -267,3 +268,14 @@ def test_robustness_all_dry_run_uses_separate_condition_outputs():
     ]:
         assert f"robustness={condition}" in output
         assert rf"robustness\pose\{condition}" in output
+
+
+def test_pipeline_requires_explicit_safe_stage_list_and_forwards_dry_run():
+    result = run_script(
+        "RunPipeline.ps1", "-Stages", "Preflight,Audit,Splits,Smoke", "-DryRun"
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert output.count("Stage:") == 4
+    assert "pretrain.py" not in output
+    assert "run_baseline.py" not in output
