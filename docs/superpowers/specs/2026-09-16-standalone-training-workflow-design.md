@@ -25,7 +25,7 @@ The following are never committed:
 - raw or canonical datasets;
 - checkpoints, TensorBoard logs, predictions, or generated result tables;
 - machine-specific credentials or GitHub tokens;
-- absolute paths under the former `C:\Users\User\Documents\F_model` root.
+- absolute paths under the former workspace root.
 
 ## 3. Repository Structure
 
