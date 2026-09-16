@@ -41,6 +41,7 @@ def test_preflight_script_inventory():
         "02_PrepareSplits.ps1",
         "03_SmokeTest.ps1",
         "04_TrainBaseline.ps1",
+        "05_Pretrain.ps1",
     ]
     assert [name for name in required if not (SCRIPT_ROOT / name).is_file()] == []
 
@@ -159,3 +160,66 @@ def test_supervised_tcn_pretrain_is_rejected():
     assert result.returncode != 0
     assert "supervised_tcn" in output
     assert "pretrain" in output
+
+
+@pytest.mark.parametrize(
+    ("mode", "extra", "expected_steps"),
+    [
+        ("Pilot", [], "optimizer.max_steps=200"),
+        ("Full", ["-MaxSteps", "100000"], "optimizer.max_steps=100000"),
+        (
+            "Resume",
+            [
+                "-MaxSteps",
+                "100000",
+                "-ResumeFrom",
+                r"D:\Fmodel\runs\pretrain\checkpoints\last.ckpt",
+            ],
+            "optimizer.max_steps=100000",
+        ),
+    ],
+)
+def test_pretrain_modes_build_bounded_commands(
+    mode: str, extra: list[str], expected_steps: str
+):
+    result = run_script(
+        "05_Pretrain.ps1",
+        "-Mode",
+        mode,
+        "-Devices",
+        "1",
+        "-AccumulateGradBatches",
+        "2",
+        "-BatchSize",
+        "8",
+        *extra,
+        "-DryRun",
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "pretrain.py" in output
+    assert "global_batch_size=16" in output
+    assert expected_steps in output
+    if mode == "Resume":
+        assert "resume_from=" in output
+
+
+def test_full_pretrain_requires_explicit_max_steps():
+    result = run_script("05_Pretrain.ps1", "-Mode", "Full", "-DryRun")
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "MaxSteps" in output
+
+
+def test_resume_pretrain_requires_checkpoint():
+    result = run_script(
+        "05_Pretrain.ps1",
+        "-Mode",
+        "Resume",
+        "-MaxSteps",
+        "100000",
+        "-DryRun",
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "ResumeFrom" in output
