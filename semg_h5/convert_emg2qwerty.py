@@ -40,7 +40,8 @@ SCHEMA_VERSION = "1.0"
 SAMPLE_RATE_HZ = 2000
 MANIFEST_COLUMNS = [
     "path", "dataset_id", "task_id", "subject_id", "session_id", "side", "pair_id",
-    "official_split", "sample_count", "duration_s", "source_file", "source_sha256",
+    "official_split", "sample_count", "duration_s", "sample_rate_hz", "source_file",
+    "source_sha256",
 ]
 
 
@@ -275,6 +276,7 @@ def build_manifest_row(record: CanonicalRecord, relative_path: Path) -> dict[str
         "subject_id": record.subject_id, "session_id": record.session_id, "side": record.side,
         "pair_id": record.pair_id, "official_split": record.official_split,
         "sample_count": int(len(record.emg)), "duration_s": float(record.time_s[-1] - record.time_s[0]),
+        "sample_rate_hz": SAMPLE_RATE_HZ,
         "source_file": record.source_file, "source_sha256": source_sha256(record.source_path),
     }
 

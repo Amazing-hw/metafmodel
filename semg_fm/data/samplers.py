@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable, Iterator
 
+import numpy as np
 import torch
 from torch.utils.data import Sampler
 
@@ -20,13 +21,27 @@ def _task_ids(dataset) -> list[str]:
     return [str(dataset[index]["task_id"]) for index in range(len(dataset))]
 
 
-def _task_groups(dataset) -> dict[str, list[int]]:
-    groups: dict[str, list[int]] = defaultdict(list)
+def _task_groups(dataset) -> dict[str, np.ndarray]:
+    """Group window ordinals by task, as arrays rather than Python lists.
+
+    A corpus-scale split holds tens of millions of windows in one task; a
+    ``list[int]`` of those ordinals costs about 1 GB and a ``list[str]`` of
+    task IDs several times more.
+    """
+    if hasattr(dataset, "window_indices_by_task"):
+        groups = dataset.window_indices_by_task()
+        if not groups:
+            raise ValueError("dataset must contain at least one task")
+        return groups
+    collected: dict[str, list[int]] = defaultdict(list)
     for index, task_id in enumerate(_task_ids(dataset)):
-        groups[task_id].append(index)
-    if not groups:
+        collected[task_id].append(index)
+    if not collected:
         raise ValueError("dataset must contain at least one task")
-    return {task_id: indices for task_id, indices in sorted(groups.items())}
+    return {
+        task_id: np.asarray(indices, dtype=np.int64)
+        for task_id, indices in sorted(collected.items())
+    }
 
 
 class EvaluationIndex(int):
@@ -73,39 +88,46 @@ class TaskBalancedBatchSampler(Sampler[list[int]]):
     def load_state_dict(self, state: dict[str, int]) -> None:
         self.epoch = int(state.get("epoch", 0))
 
-    def _rank_batches(self) -> dict[str, list[list[int]]]:
-        generator = torch.Generator().manual_seed(self.seed + self.epoch)
-        batches: dict[str, list[list[int]]] = {}
-        for task_id, indices in self._groups.items():
-            order = torch.randperm(len(indices), generator=generator).tolist()
-            usable_samples = len(indices) // (self.batch_size * self.world_size)
-            samples_per_rank = usable_samples * self.batch_size
-            ordered_indices = [indices[position] for position in order]
-            rank_start = self.rank * samples_per_rank
-            rank_indices = ordered_indices[rank_start : rank_start + samples_per_rank]
-            batches[task_id] = [
-                rank_indices[start : start + self.batch_size]
-                for start in range(0, len(rank_indices) - self.batch_size + 1, self.batch_size)
-            ]
-        return batches
+    def _rank_batch_count(self, indices: np.ndarray) -> int:
+        """Full batches this rank contributes from one task's windows."""
+        return len(indices) // (self.batch_size * self.world_size)
+
+    def _task_batches(self, indices: np.ndarray, generator: torch.Generator) -> Iterator[list[int]]:
+        """Shuffle one task's windows and yield this rank's batches in order.
+
+        The permutation is drawn on the first ``next`` call, so drawing from a
+        generator shared by every task reproduces the previous per-task draw
+        order without materializing every batch of the epoch at once.
+        """
+        order = torch.randperm(len(indices), generator=generator).numpy()
+        samples_per_rank = self._rank_batch_count(indices) * self.batch_size
+        rank_start = self.rank * samples_per_rank
+        rank_indices = indices[order][rank_start : rank_start + samples_per_rank]
+        for start in range(0, samples_per_rank, self.batch_size):
+            yield rank_indices[start : start + self.batch_size].tolist()
 
     def __iter__(self) -> Iterator[list[int]]:
         if self._epoch_getter is not None:
             self.set_epoch(self._epoch_getter())
-        batches = self._rank_batches()
+        generator = torch.Generator().manual_seed(self.seed + self.epoch)
+        pending = {
+            task_id: self._task_batches(indices, generator)
+            for task_id, indices in self._groups.items()
+        }
         # Interleave one batch per task per round until every task is exhausted.
         # A min() cutoff would starve the whole epoch whenever one task has
         # fewer windows than a batch; skip exhausted tasks instead.
-        longest = max((len(task_batches) for task_batches in batches.values()), default=0)
-        for batch_index in range(longest):
-            for task_id in self._groups:
-                task_batches = batches[task_id]
-                if batch_index < len(task_batches):
-                    yield task_batches[batch_index]
+        while pending:
+            for task_id in list(pending):
+                try:
+                    yield next(pending[task_id])
+                except StopIteration:
+                    del pending[task_id]
 
     def __len__(self) -> int:
-        batches = self._rank_batches()
-        return sum(len(task_batches) for task_batches in batches.values())
+        return sum(
+            self._rank_batch_count(indices) for indices in self._groups.values()
+        )
 
 
 class TaskEvaluationBatchSampler(Sampler[list[int]]):
@@ -121,26 +143,35 @@ class TaskEvaluationBatchSampler(Sampler[list[int]]):
         self.world_size = int(world_size)
         self._groups = _task_groups(dataset)
 
-    def _batches(self) -> list[list[int]]:
-        batches: list[list[int]] = []
+    def _task_batch(self, indices: np.ndarray, offset: int) -> np.ndarray:
+        return indices[offset * self.batch_size : (offset + 1) * self.batch_size]
+
+    def _batch_counts(self, indices: np.ndarray) -> tuple[int, int]:
+        """Return (actual, assigned) batch counts for one task on this rank."""
+        actual = (len(indices) + self.batch_size - 1) // self.batch_size
+        return actual, actual + (-actual) % self.world_size
+
+    def _batches(self) -> Iterator[list[int]]:
+        # Batches are produced as they are consumed: the test splits of the
+        # converted corpus still hold millions of windows, and a list of every
+        # batch would hold them all at once.
         for indices in self._groups.values():
-            actual_batches = [
-                indices[start : start + self.batch_size]
-                for start in range(0, len(indices), self.batch_size)
-            ]
-            padded_count = (-len(actual_batches)) % self.world_size
-            assigned_batches = actual_batches + [
-                actual_batches[offset % len(actual_batches)] for offset in range(padded_count)
-            ]
-            for batch_index in range(self.rank, len(assigned_batches), self.world_size):
-                is_padding = batch_index >= len(actual_batches)
-                batches.append([
-                    EvaluationIndex(index, is_padding) for index in assigned_batches[batch_index]
-                ])
-        return batches
+            actual, assigned = self._batch_counts(indices)
+            for batch_index in range(self.rank, assigned, self.world_size):
+                is_padding = batch_index >= actual
+                # A padded duplicate repeats an existing batch, so every rank
+                # sees the same number of batches without inventing windows.
+                source = batch_index % actual if is_padding else batch_index
+                yield [
+                    EvaluationIndex(int(index), is_padding)
+                    for index in self._task_batch(indices, source)
+                ]
 
     def __iter__(self) -> Iterator[list[int]]:
         yield from self._batches()
 
     def __len__(self) -> int:
-        return len(self._batches())
+        return sum(
+            len(range(self.rank, assigned, self.world_size))
+            for assigned in (self._batch_counts(indices)[1] for indices in self._groups.values())
+        )

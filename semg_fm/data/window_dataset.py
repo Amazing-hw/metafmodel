@@ -63,6 +63,46 @@ def _canonical_signal_datasets(h5: h5py.File, record: dict[str, Any], path: Path
     return emg_dataset, time_dataset, sample_rate_hz
 
 
+class _WindowIndex:
+    """Enumerate ``(path, start, end)`` windows from per-record geometry.
+
+    The converted corpus holds tens of millions of windows, and one tuple per
+    window costs roughly 10 GB.  Only the per-record geometry is stored here;
+    an individual entry is recovered by locating the record that owns the
+    ordinal and multiplying by the record's stride.
+    """
+
+    def __init__(self, paths, window_samples, stride_samples, offsets):
+        self.paths = paths
+        self.offsets = offsets
+        self._window_samples = window_samples
+        self._stride_samples = stride_samples
+
+    def __len__(self) -> int:
+        return int(self.offsets[-1])
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return [self[position] for position in range(*index.indices(len(self)))]
+        ordinal = int(index)
+        if ordinal < 0:
+            ordinal += len(self)
+        if not 0 <= ordinal < len(self):
+            raise IndexError(index)
+        record = int(np.searchsorted(self.offsets, ordinal, side="right") - 1)
+        local = ordinal - int(self.offsets[record])
+        start = local * int(self._stride_samples[record])
+        return (self.paths[record], start, start + int(self._window_samples[record]))
+
+    def __iter__(self):
+        for record, path in enumerate(self.paths):
+            window_samples = int(self._window_samples[record])
+            stride_samples = int(self._stride_samples[record])
+            count = int(self.offsets[record + 1]) - int(self.offsets[record])
+            for start in range(0, count * stride_samples, stride_samples):
+                yield (path, start, start + window_samples)
+
+
 class CanonicalWindowDataset(Dataset):
     """Index full, fixed-duration windows without keeping HDF5 files open."""
 
@@ -72,21 +112,58 @@ class CanonicalWindowDataset(Dataset):
         self.window_ms = float(window_ms)
         self.stride_ms = float(stride_ms)
         self._records = {Path(record["path"]): record for record in records}
-        self._index: list[tuple[Path, int, int]] = []
-        for record in records:
-            rate_hz = float(record["sample_rate_hz"])
-            window_samples = int(round(rate_hz * self.window_ms / 1000.0))
-            stride_samples = int(round(rate_hz * self.stride_ms / 1000.0))
-            if window_samples <= 0 or stride_samples <= 0:
-                raise ValueError("window_ms and stride_ms must produce at least one sample")
-            sample_count = int(record["sample_count"])
-            for start_index in range(0, sample_count - window_samples + 1, stride_samples):
-                self._index.append((Path(record["path"]), start_index, start_index + window_samples))
-        if records and not self._index:
+        self._index = self._build_index(records)
+        if records and not len(self._index):
             raise ValueError(
                 f"no windows fit in the selected records: each recording is shorter than "
                 f"one {self.window_ms} ms window, so the dataset would be empty."
             )
+
+    def _build_index(self, records: list[dict[str, Any]]) -> _WindowIndex:
+        paths: list[Path] = []
+        window_samples: list[int] = []
+        stride_samples: list[int] = []
+        counts: list[int] = []
+        for record in records:
+            rate_hz = float(record["sample_rate_hz"])
+            window = int(round(rate_hz * self.window_ms / 1000.0))
+            stride = int(round(rate_hz * self.stride_ms / 1000.0))
+            if window <= 0 or stride <= 0:
+                raise ValueError("window_ms and stride_ms must produce at least one sample")
+            sample_count = int(record["sample_count"])
+            paths.append(Path(record["path"]))
+            window_samples.append(window)
+            stride_samples.append(stride)
+            counts.append((sample_count - window) // stride + 1 if sample_count >= window else 0)
+        offsets = np.concatenate(
+            ([0], np.cumsum(np.asarray(counts, dtype=np.int64)))
+        )
+        return _WindowIndex(
+            paths,
+            np.asarray(window_samples, dtype=np.int64),
+            np.asarray(stride_samples, dtype=np.int64),
+            offsets.astype(np.int64),
+        )
+
+    def window_indices_by_task(self) -> dict[str, np.ndarray]:
+        """Group global window ordinals by task without one Python object each.
+
+        The task-balanced sampler shuffles every window of a task, so it needs
+        the ordinals themselves; as Python lists they cost about 1 GB per task
+        on the converted corpus, so they are assembled per record instead.
+        """
+        paths = self._index.paths
+        offsets = self._index.offsets
+        groups: dict[str, list[np.ndarray]] = {}
+        for position, path in enumerate(paths):
+            task_id = str(self._records[path]["task_id"])
+            start, stop = int(offsets[position]), int(offsets[position + 1])
+            if stop > start:
+                groups.setdefault(task_id, []).append(np.arange(start, stop, dtype=np.int64))
+        return {
+            task_id: np.concatenate(parts)
+            for task_id, parts in sorted(groups.items())
+        }
 
     @classmethod
     def from_manifest(cls, manifest_path, split: str, window_ms: float, stride_ms: float, root=None, task_id: str | None = None):
@@ -113,13 +190,14 @@ class CanonicalWindowDataset(Dataset):
                 continue
             if task_id is not None and _text(row["task_id"]) != task_id:
                 continue
-            sample_count, duration_s = int(row["sample_count"]), float(row["duration_s"])
-            if "sample_rate_hz" in row and row["sample_rate_hz"] != "":
-                rate_hz = float(row["sample_rate_hz"])
-            elif sample_count > 1 and duration_s > 0:
-                rate_hz = (sample_count - 1) / duration_s
-            else:
-                raise ValueError(f"cannot infer sample rate for {row['path']} without sample_rate_hz")
+            sample_count = int(row["sample_count"])
+            # The rate comes from the manifest column and nowhere else.  It
+            # cannot be inferred from the clock span: /signal/time_s preserves
+            # the release's own clock, so dropped samples make the span exceed
+            # (T-1)/rate and the inferred rate come out low -- 90 Hz for the
+            # worst record in the converted corpus -- which silently shrinks
+            # every window.
+            rate_hz = float(row["sample_rate_hz"])
             if not np.isfinite(rate_hz) or rate_hz <= 0:
                 raise ValueError(f"invalid sample rate for {row['path']}")
             records.append({
@@ -158,13 +236,15 @@ class CanonicalWindowDataset(Dataset):
             raise ValueError("label budget must be in (0, 1]")
         if budget >= 1.0:
             return
-        kept: list[tuple[Path, int, int]] = []
-        for entry in self._index:
-            record = self._records[entry[0]]
+        # The draw is per subject group, so filtering whole records keeps every
+        # window of a kept group and rebuilds the geometry in one pass instead
+        # of copying one entry per window.
+        kept: list[dict[str, Any]] = []
+        for record in self._records.values():
             key = f"{seed}:{record['dataset_id']}:{record['subject_id']}:{record['pair_id']}"
             point = int.from_bytes(hashlib.sha256(key.encode("utf-8")).digest()[:8], "big") / 2**64
             if point < budget:
-                kept.append(entry)
+                kept.append(record)
         if not kept:
             groups = {
                 f"{record['dataset_id']}:{record['subject_id']}:{record['pair_id']}"
@@ -176,7 +256,8 @@ class CanonicalWindowDataset(Dataset):
                 "budget over few groups can select nothing; the run would otherwise "
                 "train for zero steps without reporting an error."
             )
-        self._index = kept
+        self._records = {Path(record["path"]): record for record in kept}
+        self._index = self._build_index(kept)
 
     def __len__(self) -> int:
         return len(self._index)

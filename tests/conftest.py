@@ -77,8 +77,8 @@ def canonical_meta_root(tmp_path):
                     "path": str(path.relative_to(root)), "dataset_id": "canonical", "task_id": task,
                     "subject_id": "subject-1", "session_id": f"session-{task}", "side": side,
                     "pair_id": "pair-1" if task == "typing" else "", "official_split": "train",
-                    "sample_count": 600, "duration_s": 0.2995, "source_file": path.name,
-                    "source_sha256": "0" * 64,
+                    "sample_count": 600, "duration_s": 0.2995, "sample_rate_hz": 2000.0,
+                    "source_file": path.name, "source_sha256": "0" * 64,
                 })
     pd.DataFrame(records).to_csv(root / "manifest.csv", index=False)
     return root

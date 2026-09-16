@@ -16,6 +16,7 @@ REQUIRED_COLUMNS = {
     "official_split",
     "sample_count",
     "duration_s",
+    "sample_rate_hz",
     "source_file",
     "source_sha256",
 }

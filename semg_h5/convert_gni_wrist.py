@@ -38,7 +38,7 @@ import pandas as pd
 
 SCHEMA_VERSION, SAMPLE_RATE_HZ = "1.0", 2000
 EXPECTED_SOURCE_TASK, DATASET_ID, TASK_ID = "wrist", "gni_wrist", "wrist_angle"
-MANIFEST_COLUMNS = ["path", "dataset_id", "task_id", "subject_id", "session_id", "side", "pair_id", "official_split", "sample_count", "duration_s", "source_file", "source_sha256"]
+MANIFEST_COLUMNS = ["path", "dataset_id", "task_id", "subject_id", "session_id", "side", "pair_id", "official_split", "sample_count", "duration_s", "sample_rate_hz", "source_file", "source_sha256"]
 
 
 @contextmanager
@@ -207,7 +207,7 @@ def _sha256(path: str | Path) -> str:
 
 
 def _manifest(record: dict[str, Any], relative: Path) -> dict[str, Any]:
-    return {"path": relative.as_posix(), **{key: record[key] for key in ("dataset_id", "task_id", "subject_id", "session_id", "side", "pair_id", "official_split", "source_file")}, "sample_count": int(len(record["emg"])), "duration_s": float(record["time_s"][-1] - record["time_s"][0]), "source_sha256": _sha256(record["source_path"])}
+    return {"path": relative.as_posix(), **{key: record[key] for key in ("dataset_id", "task_id", "subject_id", "session_id", "side", "pair_id", "official_split", "source_file")}, "sample_count": int(len(record["emg"])), "duration_s": float(record["time_s"][-1] - record["time_s"][0]), "sample_rate_hz": SAMPLE_RATE_HZ, "source_sha256": _sha256(record["source_path"])}
 
 
 def _append(path: str | Path, row: dict[str, Any]) -> None:

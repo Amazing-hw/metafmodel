@@ -201,6 +201,58 @@ def test_dataset_rejects_missing_or_mismatched_canonical_root_attributes(canonic
         ds[0]
 
 
+def test_window_index_stores_only_per_record_geometry(canonical_meta_root):
+    """A corpus split holds tens of millions of windows and one tuple each costs
+    about 10 GB, so the index may only keep per-record geometry.
+    """
+    ds = CanonicalWindowDataset.from_manifest(
+        canonical_meta_root / "manifest.csv", split="train", window_ms=200, stride_ms=100
+    )
+    assert ds._index.offsets.shape == (len(ds._index.paths) + 1,)
+    assert len(ds._index) == len(ds) > 0
+    # Indexing, slicing, and iteration must agree with each other.
+    assert ds._index[0] == next(iter(ds._index))
+    assert ds._index[-1] == list(ds._index)[-1]
+    assert ds._index[:2] == [ds._index[0], ds._index[1]]
+    with pytest.raises(IndexError):
+        ds._index[len(ds)]
+
+
+def test_window_indices_by_task_covers_every_window_exactly_once(canonical_meta_root):
+    ds = CanonicalWindowDataset.from_manifest(
+        canonical_meta_root / "manifest.csv", split="train", window_ms=200, stride_ms=100
+    )
+    groups = ds.window_indices_by_task()
+    assert set(groups) == {ds._records[path]["task_id"] for path in ds._index.paths}
+    assert all(isinstance(indices, np.ndarray) for indices in groups.values())
+    combined = np.sort(np.concatenate(list(groups.values())))
+    assert combined.tolist() == list(range(len(ds)))
+
+
+def test_window_size_follows_the_declared_rate_not_the_gapped_clock_span(canonical_meta_root):
+    """Dropped samples make the clock span exceed (T-1)/rate, so the span cannot
+    estimate the rate.
+
+    This record holds 600 samples but its clock spans 0.6 s, which would infer
+    1000 Hz.  The window must follow the declared 2000 Hz and return all 400
+    samples rather than being silently halved.
+    """
+    path = canonical_meta_root / "pose" / "pose_right.h5"
+    with h5py.File(path, "r+") as h5:
+        time_s = h5["signal/time_s"][:]
+        time_s[2:] += 0.3
+        h5["signal/time_s"][:] = time_s
+    manifest = pd.read_csv(canonical_meta_root / "manifest.csv", keep_default_na=False)
+    # Push the span far enough from the declared rate that the assertion cannot
+    # pass by coincidence.
+    manifest.loc[manifest.path.str.contains("pose_right"), "duration_s"] = 0.5995
+    manifest.to_csv(canonical_meta_root / "manifest.csv", index=False)
+    ds = CanonicalWindowDataset.from_manifest(
+        canonical_meta_root / "manifest.csv", split="train", window_ms=200, stride_ms=100
+    )
+    assert ds[0]["emg"].shape == (400, 16)
+
+
 def test_gapped_record_clock_controls_the_open_window_end(canonical_meta_root):
     path = canonical_meta_root / "discrete_gesture" / "discrete_gesture_right.h5"
     with h5py.File(path, "r+") as h5:

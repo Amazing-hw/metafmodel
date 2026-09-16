@@ -16,7 +16,8 @@ def test_root_make_splits_assigns_unknown_and_preserves_official(tmp_path):
             "path": ["record.h5"], "dataset_id": ["d"], "task_id": ["t"],
             "subject_id": ["s"], "session_id": ["x"], "side": ["right"],
             "pair_id": [""], "official_split": ["unknown"], "sample_count": [1],
-            "duration_s": [0.0], "source_file": ["record.h5"], "source_sha256": ["0" * 64],
+            "duration_s": [0.0], "sample_rate_hz": [2000.0],
+            "source_file": ["record.h5"], "source_sha256": ["0" * 64],
         }
     ).to_csv(manifest, index=False)
     output = tmp_path / "split.csv"
@@ -40,7 +41,8 @@ def test_output_is_independent_of_manifest_root(tmp_path):
             {
                 "path": ["record.h5"], "dataset_id": ["d"], "task_id": ["t"], "subject_id": ["s"],
                 "session_id": ["x"], "side": ["right"], "pair_id": [""], "official_split": [""],
-                "sample_count": [1], "duration_s": [0.0], "source_file": ["record.h5"], "source_sha256": ["0" * 64],
+                "sample_count": [1], "duration_s": [0.0], "sample_rate_hz": [2000.0],
+                "source_file": ["record.h5"], "source_sha256": ["0" * 64],
             }
         ).to_csv(manifest, index=False)
         output = root / "split.csv"
@@ -56,7 +58,8 @@ def test_invalid_official_split_is_rejected(tmp_path):
         {
             "path": ["record.h5"], "dataset_id": ["d"], "task_id": ["t"], "subject_id": ["s"],
             "session_id": ["x"], "side": ["right"], "pair_id": [""], "official_split": ["holdout"],
-            "sample_count": [1], "duration_s": [0.0], "source_file": ["record.h5"], "source_sha256": ["0" * 64],
+            "sample_count": [1], "duration_s": [0.0], "sample_rate_hz": [2000.0],
+                "source_file": ["record.h5"], "source_sha256": ["0" * 64],
         }
     ).to_csv(manifest, index=False)
     with pytest.raises(ValueError, match="invalid official_split"):
@@ -78,7 +81,7 @@ def test_official_splits_spanning_one_subject_are_preserved(tmp_path, capsys):
             "path": ["a.h5", "b.h5"], "dataset_id": ["d", "d"], "task_id": ["t", "t"],
             "subject_id": ["s", "s"], "session_id": ["x", "y"], "side": ["right", "right"],
             "pair_id": ["", ""], "official_split": ["train", "test"],
-            "sample_count": [1, 1], "duration_s": [0.0, 0.0],
+            "sample_count": [1, 1], "duration_s": [0.0, 0.0], "sample_rate_hz": [2000.0, 2000.0],
             "source_file": ["a.h5", "b.h5"], "source_sha256": ["0" * 64, "1" * 64],
         }
     ).to_csv(manifest, index=False)

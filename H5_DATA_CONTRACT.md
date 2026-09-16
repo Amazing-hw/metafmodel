@@ -14,8 +14,15 @@ CANONICAL_META/
 
 `manifest.csv` columns (fixed): `path`, `dataset_id`, `task_id`,
 `subject_id`, `session_id`, `side`, `pair_id`, `official_split`,
-`sample_count`, `duration_s`, `source_file`, `source_sha256`. Paths are
-relative to the manifest's root; the loader rejects paths escaping the root.
+`sample_count`, `duration_s`, `sample_rate_hz`, `source_file`,
+`source_sha256`. Paths are relative to the manifest's root; the loader rejects
+paths escaping the root.
+
+`sample_rate_hz` is the rate the windows are sized with, so it must be the
+declared device rate rather than a value derived from `sample_count` and
+`duration_s`: `/signal/time_s` keeps the release's own clock, and dropped
+samples make that span longer than `(T-1)/rate`, which would understate the
+rate and shrink every window.
 
 ## Root attributes (validated on every window read)
 
