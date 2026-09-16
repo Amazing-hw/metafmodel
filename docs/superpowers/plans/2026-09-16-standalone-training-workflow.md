@@ -263,10 +263,10 @@ def audit_canonical_corpus(root: Path, manifest_path: Path, h5_samples: int = 0)
     for path in [path for path in resolved if path.is_file()][:h5_samples]:
         try:
             with h5py.File(path, "r") as handle:
-                if "emg" not in handle:
-                    schema_errors.append(f"{path}: missing emg dataset")
-                elif handle["emg"].ndim != 2 or handle["emg"].shape[1] != 16:
-                    schema_errors.append(f"{path}: emg must have shape [time, 16]")
+                if "signal/emg" not in handle:
+                    schema_errors.append(f"{path}: missing signal/emg dataset")
+                elif handle["signal/emg"].ndim != 2 or handle["signal/emg"].shape[1] != 16:
+                    schema_errors.append(f"{path}: signal/emg must have shape [time, 16]")
             sampled += 1
         except OSError as exc:
             schema_errors.append(f"{path}: {exc}")
