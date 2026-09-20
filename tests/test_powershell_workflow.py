@@ -14,7 +14,17 @@ POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
 pytestmark = pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is unavailable")
 
 
-def run_script(name: str, *arguments: str) -> subprocess.CompletedProcess[str]:
+def run_script(
+    name: str, *arguments: str, include_split: bool = True
+) -> subprocess.CompletedProcess[str]:
+    split_arguments = []
+    if include_split and name in {
+        "03_SmokeTest.ps1", "04_TrainBaseline.ps1", "05_Pretrain.ps1",
+        "06_Finetune.ps1", "07_Evaluate.ps1", "08_Robustness.ps1",
+    }:
+        split_arguments = [
+            "-SplitsPath", r"D:\Fmodel\emg_data_canonical\splits.csv"
+        ]
     return subprocess.run(
         [
             str(POWERSHELL),
@@ -24,6 +34,7 @@ def run_script(name: str, *arguments: str) -> subprocess.CompletedProcess[str]:
             "-File",
             str(SCRIPT_ROOT / name),
             *arguments,
+            *split_arguments,
         ],
         cwd=ROOT,
         text=True,
@@ -267,15 +278,98 @@ def test_robustness_all_dry_run_uses_separate_condition_outputs():
         "additive_noise", "temporal_loss",
     ]:
         assert f"robustness={condition}" in output
-        assert rf"robustness\pose\{condition}" in output
+        assert rf"robustness\custom-" in output
+        assert rf"\pose\{condition}" in output
 
 
 def test_pipeline_requires_explicit_safe_stage_list_and_forwards_dry_run():
     result = run_script(
-        "RunPipeline.ps1", "-Stages", "Preflight,Audit,Splits,Smoke", "-DryRun"
+        "RunPipeline.ps1", "-Stages", "Preflight,Audit,Splits,Smoke",
+        "-Protocol", "Official", "-SplitSeed", "20260916", "-DryRun",
     )
     output = result.stdout + result.stderr
     assert result.returncode == 0, output
     assert output.count("Stage:") == 4
     assert "pretrain.py" not in output
     assert "run_baseline.py" not in output
+    assert "splits.official.seed-20260916.csv" in output
+
+
+def test_protocol_selected_split_reaches_every_smoke_task(tmp_path: Path):
+    canonical = tmp_path / "canonical"
+    canonical.mkdir()
+    selected = canonical / "splits.strict-subject.seed-17.csv"
+    selected.write_text("path\n", encoding="utf-8")
+    result = run_script(
+        "03_SmokeTest.ps1", "-CanonicalRoot", str(canonical),
+        "-Protocol", "StrictSubject", "-SplitSeed", "17", "-DryRun",
+        include_split=False,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert output.count(selected.name) == 5
+
+
+def test_training_script_rejects_missing_split_selection():
+    result = run_script("03_SmokeTest.ps1", "-DryRun", include_split=False)
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "split selection" in output
+
+
+def test_pretrain_protocol_selected_split_is_forwarded(tmp_path: Path):
+    canonical = tmp_path / "canonical"
+    canonical.mkdir()
+    selected = canonical / "splits.official.seed-17.csv"
+    selected.write_text("path\n", encoding="utf-8")
+    result = run_script(
+        "05_Pretrain.ps1", "-CanonicalRoot", str(canonical),
+        "-Protocol", "Official", "-SplitSeed", "17", "-DryRun",
+        include_split=False,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert selected.name in output
+
+
+def test_existing_output_requires_force(tmp_path: Path):
+    canonical = tmp_path / "canonical"
+    canonical.mkdir()
+    selected = canonical / "splits.official.seed-17.csv"
+    selected.write_text("path\n", encoding="utf-8")
+    runs = tmp_path / "runs"
+    (runs / "smoke" / "official-seed-17" / "pose").mkdir(parents=True)
+
+    result = run_script(
+        "03_SmokeTest.ps1", "-CanonicalRoot", str(canonical),
+        "-RunsRoot", str(runs), "-Task", "pose", "-Protocol", "Official",
+        "-SplitSeed", "17", "-DryRun", include_split=False,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "output directory already exists" in output
+
+    forced = run_script(
+        "03_SmokeTest.ps1", "-CanonicalRoot", str(canonical),
+        "-RunsRoot", str(runs), "-Task", "pose", "-Protocol", "Official",
+        "-SplitSeed", "17", "-Force", "-DryRun", include_split=False,
+    )
+    assert forced.returncode == 0, forced.stdout + forced.stderr
+
+
+def test_pipeline_forwards_selected_split_from_splits_stage_in_dry_run(tmp_path: Path):
+    canonical = tmp_path / "canonical"
+    canonical.mkdir()
+    (canonical / "manifest.csv").write_text(
+        "dataset_id,subject_id,official_split\nexample,subject,train\n",
+        encoding="utf-8",
+    )
+    result = run_script(
+        "RunPipeline.ps1", "-CanonicalRoot", str(canonical),
+        "-RunsRoot", str(tmp_path / "runs"), "-Stages", "Splits,Smoke",
+        "-Protocol", "StrictSubject", "-SplitSeed", "17", "-DryRun",
+        include_split=False,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert output.count("splits.strict-subject.seed-17.csv") >= 2

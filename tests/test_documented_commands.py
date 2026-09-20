@@ -13,6 +13,7 @@ def test_public_documents_include_all_entry_points():
             "README.md",
             "docs/META16_TRAINING_WORKFLOW.md",
             "docs/POWERSHELL_SCRIPT_REFERENCE.md",
+            "docs/POST_CONVERSION_EXECUTION_GUIDE.md",
         ]
     )
     for command in [
@@ -28,6 +29,7 @@ def test_training_stack_documents_exist():
         "README.md",
         "docs/META16_TRAINING_WORKFLOW.md",
         "docs/POWERSHELL_SCRIPT_REFERENCE.md",
+        "docs/POST_CONVERSION_EXECUTION_GUIDE.md",
     ]:
         assert (root / name).is_file(), f"missing {name}"
 
@@ -39,6 +41,7 @@ def test_workflow_documents_all_powershell_stages():
         for name in [
             "docs/META16_TRAINING_WORKFLOW.md",
             "docs/POWERSHELL_SCRIPT_REFERENCE.md",
+            "docs/POST_CONVERSION_EXECUTION_GUIDE.md",
         ]
     )
     for script in [

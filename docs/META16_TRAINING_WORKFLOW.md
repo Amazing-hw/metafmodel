@@ -14,6 +14,8 @@ The canonical root is `D:\Fmodel\emg_data_canonical`. Its manifest contains 14,4
 
 `Official` preserves release `official_split` labels; it can legitimately span a subject across splits. `StrictSubject` copies the manifest, replaces every official assignment with `unknown`, then deterministically splits dataset/subject/pair groups. Use one protocol per reported result and state it in every result table.
 
+For every stage after `02_PrepareSplits.ps1`, select the exact split with either `-SplitsPath` or `-Protocol` plus `-SplitSeed`. The examples below use the latter. Output directories include that selection and refuse accidental reuse unless `-Force` is explicitly supplied. See [the detailed execution guide](POST_CONVERSION_EXECUTION_GUIDE.md) for the complete command sequence and recovery steps.
+
 ## Stage gates
 
 1. Preflight checks Python packages, entry points, the canonical root, and `manifest.csv`.
@@ -44,29 +46,29 @@ Pass gate: task-by-split counts print; StrictSubject also prints leakage-check P
 4. Run real-data fast-dev smoke tests for all five tasks before GPU work.
 
 ```powershell
-powershell -File scripts\powershell\03_SmokeTest.ps1 -Task All
+powershell -File scripts\powershell\03_SmokeTest.ps1 -Task All -Protocol Official -SplitSeed 20260916
 ```
 
-Pass gate: five Lightning CPU runs finish with `data.num_workers=0`. Outputs: `runs\smoke\<task>`.
+Pass gate: five Lightning CPU runs finish with `data.num_workers=0`. Outputs: `runs\smoke\official-seed-20260916\<task>`.
 
 5. Establish comparison baselines with `supervised_tcn`, `bendr`, `cbramod`, or `aemg`.
 
 ```powershell
-powershell -File scripts\powershell\04_TrainBaseline.ps1 -Model bendr -Stage finetune -Task pose -LabelBudget 1.0
+powershell -File scripts\powershell\04_TrainBaseline.ps1 -Model bendr -Stage finetune -Task pose -LabelBudget 1.0 -Protocol Official -SplitSeed 20260916
 ```
 
 6. Start CIRCE-Myo with a bounded pilot, inspect loss/config/manifest metadata, then request compute for Full mode. Full 100,000-step training is not run by this delivery.
 
 ```powershell
-powershell -File scripts\powershell\05_Pretrain.ps1 -Mode Pilot -MaxSteps 200 -Devices 1
-powershell -File scripts\powershell\05_Pretrain.ps1 -Mode Full -MaxSteps 100000 -Devices 1
+powershell -File scripts\powershell\05_Pretrain.ps1 -Mode Pilot -MaxSteps 200 -Devices 1 -Protocol Official -SplitSeed 20260916
+powershell -File scripts\powershell\05_Pretrain.ps1 -Mode Full -MaxSteps 100000 -Devices 1 -Protocol Official -SplitSeed 20260916
 ```
 
 7. Fine-tune each task at label budgets 0.01, 0.05, 0.10, and 1.0 with `probe`, `partial`, and `full` modes. Then evaluate only trusted checkpoints produced by this repository.
 
 ```powershell
-powershell -File scripts\powershell\06_Finetune.ps1 -Task pose -FinetuneMode probe -LabelBudget 0.1 -PretrainedCheckpoint D:\Fmodel\runs\pretrain\pilot\seed-0\checkpoints\last.ckpt
-powershell -File scripts\powershell\07_Evaluate.ps1 -Task pose -CheckpointPath D:\Fmodel\runs\finetune\pose\probe\budget-0.1\seed-0\checkpoints\last.ckpt
+powershell -File scripts\powershell\06_Finetune.ps1 -Task pose -FinetuneMode probe -LabelBudget 0.1 -PretrainedCheckpoint D:\Fmodel\runs\pretrain\official-seed-20260916\pilot\seed-0\checkpoints\last.ckpt -Protocol Official -SplitSeed 20260916
+powershell -File scripts\powershell\07_Evaluate.ps1 -Task pose -CheckpointPath D:\Fmodel\runs\finetune\official-seed-20260916\pose\probe\budget-0.1\seed-0\checkpoints\last.ckpt -Protocol Official -SplitSeed 20260916
 ```
 
 Evaluation writes resolved configuration, manifest digest, environment metadata, overall/per-subject metrics, and optional predictions.
@@ -74,9 +76,9 @@ Evaluation writes resolved configuration, manifest digest, environment metadata,
 8. Evaluate robustness independently under clean, channel rotation, channel dropout, gain drift, additive noise, and temporal loss.
 
 ```powershell
-powershell -File scripts\powershell\08_Robustness.ps1 -Task pose -Condition All -CheckpointPath D:\Fmodel\runs\finetune\pose\full\budget-1\seed-0\checkpoints\last.ckpt
+powershell -File scripts\powershell\08_Robustness.ps1 -Task pose -Condition All -CheckpointPath D:\Fmodel\runs\finetune\official-seed-20260916\pose\full\budget-1\seed-0\checkpoints\last.ckpt -Protocol Official -SplitSeed 20260916
 ```
 
 Each condition gets its own output directory. The complete multi-seed robustness grid is not run by this delivery.
 
-Use `RunPipeline.ps1 -Stages Preflight,Audit,Splits,Smoke -DryRun` to inspect a safe ordered sequence. It never adds expensive stages automatically.
+Use `RunPipeline.ps1 -Stages Preflight,Audit,Splits,Smoke -Protocol Official -SplitSeed 20260916 -DryRun` to inspect a safe ordered sequence. It never adds expensive stages automatically.

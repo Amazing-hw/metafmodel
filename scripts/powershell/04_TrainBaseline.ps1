@@ -4,6 +4,8 @@ param(
     [string]$CanonicalRoot = 'D:\Fmodel\emg_data_canonical',
     [string]$RunsRoot = 'D:\Fmodel\runs',
     [string]$SplitsPath = '',
+    [ValidateSet('Official', 'StrictSubject')][string]$Protocol = '',
+    [Nullable[int]]$SplitSeed = $null,
     [ValidateSet('supervised_tcn', 'bendr', 'cbramod', 'aemg')]
     [string]$Model = 'bendr',
     [ValidateSet('pretrain', 'finetune')][string]$Stage = 'finetune',
@@ -17,12 +19,15 @@ param(
     [string]$PretrainedCheckpoint = '',
     [string]$ResumeFrom = '',
     [string]$Python = 'python',
+    [switch]$Force,
+    [switch]$AllowMissingSplit,
     [switch]$DryRun
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Common.ps1')
+if ($AllowMissingSplit -and -not $DryRun) { throw '-AllowMissingSplit is only valid with -DryRun' }
 
 if ($Stage -eq 'pretrain' -and $Model -eq 'supervised_tcn') {
     throw 'supervised_tcn is supervised-only and cannot run with stage=pretrain'
@@ -31,17 +36,13 @@ if ($Stage -eq 'pretrain' -and $Model -eq 'supervised_tcn') {
 $ProjectRoot = Resolve-FullPath -Path $ProjectRoot
 $CanonicalRoot = Resolve-FullPath -Path $CanonicalRoot
 $RunsRoot = Resolve-FullPath -Path $RunsRoot
-if ([string]::IsNullOrWhiteSpace($SplitsPath)) {
-    $SplitsPath = Join-Path $CanonicalRoot 'splits.csv'
-}
-else {
-    $SplitsPath = Resolve-FullPath -Path $SplitsPath
-}
+$SplitsPath = Resolve-SplitManifest -CanonicalRoot $CanonicalRoot -SplitsPath $SplitsPath -Protocol $Protocol -SplitSeed $SplitSeed -AllowMissing:$AllowMissingSplit
+$splitSlug = Get-SplitRunSlug -SplitsPath $SplitsPath -Protocol $Protocol -SplitSeed $SplitSeed
 
 $entryPoint = Join-Path $ProjectRoot 'run_baseline.py'
 Assert-File -Path $entryPoint -Label 'run_baseline.py'
 Assert-Directory -Path $CanonicalRoot -Label 'canonical data root'
-Assert-File -Path $SplitsPath -Label 'split manifest'
+if (-not $AllowMissingSplit) { Assert-File -Path $SplitsPath -Label 'split manifest' }
 
 if (-not [string]::IsNullOrWhiteSpace($PretrainedCheckpoint)) {
     $PretrainedCheckpoint = Resolve-FullPath -Path $PretrainedCheckpoint
@@ -56,7 +57,8 @@ if (-not [string]::IsNullOrWhiteSpace($ResumeFrom)) {
     }
 }
 
-$outputDirectory = Join-Path $RunsRoot "baselines\$Model\$Stage\$Task\seed-$Seed"
+$outputDirectory = Join-Path $RunsRoot "baselines\$splitSlug\$Model\$Stage\$Task\seed-$Seed"
+Assert-OutputDirectoryAvailable -Path $outputDirectory -Force:$Force -DryRun:$DryRun
 $arguments = @(
     $entryPoint,
     "model=$Model",

@@ -18,8 +18,8 @@ python -m pytest -q
 powershell -File scripts\powershell\00_Preflight.ps1
 powershell -File scripts\powershell\01_AuditCanonical.ps1 -H5Samples 20
 powershell -File scripts\powershell\02_PrepareSplits.ps1 -Protocol Official -Seed 20260916
-powershell -File scripts\powershell\03_SmokeTest.ps1 -Task All
-powershell -File scripts\powershell\05_Pretrain.ps1 -Mode Pilot -MaxSteps 200 -Devices 1
+powershell -File scripts\powershell\03_SmokeTest.ps1 -Task All -Protocol Official -SplitSeed 20260916
+powershell -File scripts\powershell\05_Pretrain.ps1 -Mode Pilot -MaxSteps 200 -Devices 1 -Protocol Official -SplitSeed 20260916
 ```
 
-Read [the complete workflow](docs/META16_TRAINING_WORKFLOW.md) before a real experiment and [the PowerShell reference](docs/POWERSHELL_SCRIPT_REFERENCE.md) before changing defaults. Python entry points are `audit_canonical.py`, `make_splits.py`, `pretrain.py`, `run_baseline.py`, `finetune.py`, and `evaluate.py`.
+Read [the detailed post-conversion execution guide](docs/POST_CONVERSION_EXECUTION_GUIDE.md) before a real experiment, [the workflow overview](docs/META16_TRAINING_WORKFLOW.md) for protocol rules, and [the PowerShell reference](docs/POWERSHELL_SCRIPT_REFERENCE.md) before changing defaults. Python entry points are `audit_canonical.py`, `make_splits.py`, `pretrain.py`, `run_baseline.py`, `finetune.py`, and `evaluate.py`.
