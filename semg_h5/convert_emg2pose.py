@@ -370,7 +370,24 @@ def _source_files(input_root: Path) -> list[Path]:
     return sources
 
 
-def run_conversion(input_root: str | Path, output_root: str | Path, *, split: str | None = None, splits_csv: str | Path | None = None, overwrite: bool = False) -> list[dict[str, object]]:
+def _existing_output_names(output_root: Path) -> set[str]:
+    """Collect the file names already written under ``output_root``.
+
+    Resume needs to recognise a finished record without reopening its source,
+    and the output name is derivable from the source name: the release's
+    per-file ``filename`` attribute repeats the source stem, the side is
+    already its suffix, and ``_output_relative_path`` sanitises the other
+    characters the same way for both.  Reading one HDF5 per source just to
+    recover a path would cost about as much as converting it again.
+    """
+    return {path.name for path in output_root.rglob("*.h5")}
+
+
+def _expected_output_name(source_path: Path) -> str:
+    return f"{_safe_component(source_path.stem)}.h5"
+
+
+def run_conversion(input_root: str | Path, output_root: str | Path, *, split: str | None = None, splits_csv: str | Path | None = None, overwrite: bool = False, skip_existing: bool = False) -> list[dict[str, object]]:
     input_root, output_root = Path(input_root), Path(output_root)
     try:
         output_root.resolve().relative_to(input_root.resolve())
@@ -379,8 +396,11 @@ def run_conversion(input_root: str | Path, output_root: str | Path, *, split: st
     else:
         raise ValueError("output-root must not be nested under input-root")
     lookup = _split_lookup(splits_csv)
+    existing = _existing_output_names(output_root) if skip_existing and not overwrite else set()
     rows: list[dict[str, object]] = []
     for source_path in _source_files(input_root):
+        if _expected_output_name(source_path) in existing:
+            continue
         relative_source = source_path.relative_to(input_root).as_posix()
         official_split = lookup.get(relative_source, lookup.get(source_path.name, "unknown"))
         if split is not None and official_split != split:
@@ -398,8 +418,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--split", help="Convert only this official split")
     parser.add_argument("--splits-csv", help="CSV mapping source path or file to official split")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--skip-existing", action="store_true", help="Skip sources whose output record is already written")
     args = parser.parse_args(argv)
-    rows = run_conversion(args.input_root, args.output_root, split=args.split, splits_csv=args.splits_csv, overwrite=args.overwrite)
+    rows = run_conversion(args.input_root, args.output_root, split=args.split, splits_csv=args.splits_csv, overwrite=args.overwrite, skip_existing=args.skip_existing)
     print(f"Converted {len(rows)} emg2pose records.")
     return 0
 

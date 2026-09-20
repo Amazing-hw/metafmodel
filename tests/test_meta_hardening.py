@@ -389,3 +389,47 @@ def test_pose_recordings_within_one_session_get_distinct_output_paths(tmp_path):
     assert len(paths) == 2
     assert all(path.endswith("_left.h5") for path in paths)
     assert not any("_left_left.h5" in path for path in paths)
+
+
+def test_emg2pose_resume_skips_finished_records(tmp_path):
+    """续跑必须跳过已写好的记录：磁盘写满后重跑若退化成全量重做，等于白跑。
+
+    跳过要在不打开源文件的前提下完成——每个源文件重新读一遍的代价和重新转换
+    差不多，那样的"续跑"对一次中断的运行毫无帮助。
+    """
+    converter = _load_converter("convert_emg2pose")
+    input_root = tmp_path / "in"
+    input_root.mkdir()
+    for name in ("session-a-recording-10_left", "session-b-recording-10_left"):
+        rows = np.zeros(2, dtype=np.dtype([
+            ("time", np.float64), ("joint_angles", np.float32, (20,)), ("emg", np.float32, (16,)),
+        ]))
+        with h5py.File(input_root / f"{name}.hdf5", "w") as h5:
+            group = h5.create_group("emg2pose")
+            group.attrs.update({"user": "29ddab35d7", "filename": name, "side": "left"})
+            group.create_dataset("timeseries", data=rows)
+    output_root = tmp_path / "out"
+
+    assert len(converter.run_conversion(input_root, output_root)) == 2
+
+    opened = []
+    convert_file = converter.convert_file
+
+    def observed(source_path, *args, **kwargs):
+        opened.append(Path(source_path).name)
+        return convert_file(source_path, *args, **kwargs)
+
+    converter.convert_file = observed
+    try:
+        assert converter.run_conversion(input_root, output_root, skip_existing=True) == []
+        assert opened == []
+        # 缺失的产物必须补齐，且只补它一个。
+        next(output_root.rglob("session-a*.h5")).unlink()
+        resumed = converter.run_conversion(input_root, output_root, skip_existing=True)
+        assert [row["path"] for row in resumed] == [
+            "emg2pose/pose/29ddab35d7/session-a-recording-10_left.h5"
+        ]
+        assert opened == ["session-a-recording-10_left.hdf5"]
+    finally:
+        converter.convert_file = convert_file
+    assert len(list(output_root.rglob("*.h5"))) == 2
