@@ -433,3 +433,76 @@ def test_emg2pose_resume_skips_finished_records(tmp_path):
     finally:
         converter.convert_file = convert_file
     assert len(list(output_root.rglob("*.h5"))) == 2
+
+
+def test_emg2pose_resume_rebuilds_a_record_whose_manifest_row_was_lost(tmp_path):
+    """批量写 manifest 会留下"产物在盘上、manifest 没有行"的孤儿。
+
+    跳过路径不会重新打开源文件，所以不补这一行，这条记录对训练就永久不可见。
+    """
+    converter = _load_converter("convert_emg2pose")
+    input_root = tmp_path / "in"
+    input_root.mkdir()
+    for name in ("session-a-recording-10_left", "session-b-recording-10_left"):
+        rows = np.zeros(2, dtype=np.dtype([
+            ("time", np.float64), ("joint_angles", np.float32, (20,)), ("emg", np.float32, (16,)),
+        ]))
+        with h5py.File(input_root / f"{name}.hdf5", "w") as h5:
+            group = h5.create_group("emg2pose")
+            group.attrs.update({"user": "29ddab35d7", "filename": name, "side": "left"})
+            group.create_dataset("timeseries", data=rows)
+    output_root = tmp_path / "out"
+    converter.run_conversion(input_root, output_root, manifest_batch_size=1)
+
+    manifest_path = output_root / "manifest.csv"
+    with manifest_path.open(newline="", encoding="utf-8") as handle:
+        kept = [row for row in csv.DictReader(handle)][:1]
+    with manifest_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=kept[0].keys(), lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(kept)
+    assert len(list(output_root.rglob("*.h5"))) == 2
+
+    rebuilt = converter.run_conversion(input_root, output_root, skip_existing=True)
+    assert [row["path"] for row in rebuilt] == [
+        "emg2pose/pose/29ddab35d7/session-b-recording-10_left.h5"
+    ]
+    with manifest_path.open(newline="", encoding="utf-8") as handle:
+        assert len(list(csv.DictReader(handle))) == 2
+
+
+def test_emg2pose_replace_retries_a_transient_lock(tmp_path, monkeypatch):
+    """杀毒/索引器短暂占用目标文件会让 os.replace 抛 PermissionError。
+
+    一次这样的瞬时占用曾直接终止一次跑了几千个文件的转换。
+    """
+    converter = _load_converter("convert_emg2pose")
+    source, target = tmp_path / "src.bin", tmp_path / "dst.bin"
+    source.write_bytes(b"payload")
+    real_replace = converter.os.replace
+    calls = []
+
+    def flaky(src, dst, *args, **kwargs):
+        calls.append(dst)
+        if len(calls) < 3:
+            raise PermissionError(5, "Access is denied")
+        return real_replace(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(converter.os, "replace", flaky)
+    converter._replace_with_retry(source, target)
+    assert len(calls) == 3
+    assert target.read_bytes() == b"payload"
+
+
+def test_emg2pose_replace_gives_up_after_the_last_attempt(tmp_path, monkeypatch):
+    converter = _load_converter("convert_emg2pose")
+    source, target = tmp_path / "src.bin", tmp_path / "dst.bin"
+    source.write_bytes(b"payload")
+
+    def always_locked(*args, **kwargs):
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(converter.os, "replace", always_locked)
+    with pytest.raises(PermissionError):
+        converter._replace_with_retry(source, target, attempts=2)
+    assert source.exists()

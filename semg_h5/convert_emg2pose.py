@@ -63,6 +63,22 @@ class CanonicalRecord:
     preprocessing: dict[str, Any]
 
 
+def _replace_with_retry(temporary: Path, destination: Path, *, attempts: int = 6) -> None:
+    """Replace ``destination``, tolerating another process holding it briefly.
+
+    A virus scanner or the search indexer opening the freshly written file makes
+    ``os.replace`` fail with PermissionError on Windows.  That is transient, and
+    one occurrence part way through a corpus used to end the whole run.
+    """
+    for attempt in range(attempts - 1):
+        try:
+            os.replace(temporary, destination)
+            return
+        except PermissionError:
+            time.sleep(0.25 * 2**attempt)
+    os.replace(temporary, destination)
+
+
 @contextmanager
 def _replace_after_success(temporary: Path, destination: Path):
     try:
@@ -71,7 +87,7 @@ def _replace_after_success(temporary: Path, destination: Path):
         temporary.unlink(missing_ok=True)
         raise
     try:
-        os.replace(temporary, destination)
+        _replace_with_retry(temporary, destination)
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
@@ -387,7 +403,17 @@ def _expected_output_name(source_path: Path) -> str:
     return f"{_safe_component(source_path.stem)}.h5"
 
 
-def run_conversion(input_root: str | Path, output_root: str | Path, *, split: str | None = None, splits_csv: str | Path | None = None, overwrite: bool = False, skip_existing: bool = False) -> list[dict[str, object]]:
+def _recorded_output_names(manifest_path: Path) -> set[str]:
+    """Collect the record file names the manifest already lists.
+
+    Names identify a record here because the release's file names are unique;
+    the manifest's ``path`` differs from the output file name only by its
+    directories.
+    """
+    return {Path(row["path"]).name for row in _read_manifest(manifest_path)}
+
+
+def run_conversion(input_root: str | Path, output_root: str | Path, *, split: str | None = None, splits_csv: str | Path | None = None, overwrite: bool = False, skip_existing: bool = False, manifest_batch_size: int = 200) -> list[dict[str, object]]:
     input_root, output_root = Path(input_root), Path(output_root)
     try:
         output_root.resolve().relative_to(input_root.resolve())
@@ -396,18 +422,35 @@ def run_conversion(input_root: str | Path, output_root: str | Path, *, split: st
     else:
         raise ValueError("output-root must not be nested under input-root")
     lookup = _split_lookup(splits_csv)
+    manifest_path = output_root / "manifest.csv"
     existing = _existing_output_names(output_root) if skip_existing and not overwrite else set()
+    recorded = _recorded_output_names(manifest_path) if existing else set()
     rows: list[dict[str, object]] = []
+    pending: list[dict[str, object]] = []
+
+    def flush() -> None:
+        if pending:
+            _append_manifest_rows(manifest_path, pending)
+            pending.clear()
+
     for source_path in _source_files(input_root):
-        if _expected_output_name(source_path) in existing:
+        output_name = _expected_output_name(source_path)
+        already_written = output_name in existing
+        if already_written and output_name in recorded:
             continue
         relative_source = source_path.relative_to(input_root).as_posix()
         official_split = lookup.get(relative_source, lookup.get(source_path.name, "unknown"))
         if split is not None and official_split != split:
             continue
-        row = convert_file(source_path, output_root, official_split=official_split, overwrite=overwrite, source_file=relative_source)
-        _append_manifest_rows(output_root / "manifest.csv", [row])
+        # A record already on disk without a manifest row is a leftover from an
+        # interrupted batch, and rebuilding it is the only way to recover the
+        # row: the skip path never reopens the source.  Only orphans pay for it.
+        row = convert_file(source_path, output_root, official_split=official_split, overwrite=overwrite or already_written, source_file=relative_source)
         rows.append(row)
+        pending.append(row)
+        if len(pending) >= manifest_batch_size:
+            flush()
+    flush()
     return rows
 
 
