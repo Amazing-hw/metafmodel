@@ -1,6 +1,15 @@
 # 五数据集转换完成后的完整执行指南
 
-本指南只覆盖转换完成之后的切分、预训练、下游训练、基线对比、评估和鲁棒性实验。转换脚本本身不在本指南范围内；在 emg2pose 仍在转换时，不要把它当作可用的 `pose` 数据运行全量审计或 `Task All`。
+本指南覆盖五个数据集全部转换完成之后的数据审计、切分、预训练、下游训练、基线对比、评估和鲁棒性实验。转换脚本本身不在本指南范围内。
+
+2026-09-21 的全量审计结果为：28,609 条记录、601 个 subject、14,893 个 session、1,396.474 小时，缺失文件为 0，抽检 200 个 H5 无 schema 错误。当前已经生成并验证两套固定切分：
+
+```text
+D:\Fmodel\emg_data_canonical\splits.official.seed-20260916.csv
+D:\Fmodel\emg_data_canonical\splits.strict-subject.seed-20260916.csv
+```
+
+Official 文件保留发布协议，存在 158 个发布方定义的跨 split subject 组，pair 泄漏为 0；StrictSubject 文件的 subject 与 pair 跨 split 数量均为 0。
 
 所有命令从 `D:\Fmodel\metafmodel` 执行。数据、检查点和运行结果都在 `D:\Fmodel` 下：默认规范数据根为 `D:\Fmodel\emg_data_canonical`，输出根为 `D:\Fmodel\runs`。不要使用先前的用户目录工作区。
 
@@ -24,7 +33,7 @@ $SplitFile = "D:\Fmodel\emg_data_canonical\splits.strict-subject.seed-$SplitSeed
 
 所有训练、评估和对比脚本在目标输出目录已存在时都会停止。先检查已有运行，而不是盲目重跑；只有确定要恢复或重用该目录时才添加 `-Force`。每一步均可先加 `-DryRun`：它会验证参数与输入并打印 Python/Hydra 命令，但不会训练或创建输出。
 
-## 1. 环境与规范数据门槛
+## 1. 环境预检与数据审计
 
 先安装并验证训练依赖。该命令不改变数据。
 
@@ -35,15 +44,15 @@ powershell -File scripts\powershell\00_Preflight.ps1
 
 通过标准：两个命令退出码为 0；预检会显示 PyTorch 版本和 CUDA 可用性。若显示 `False`，只能运行 `cpu_smoke`，不得在该环境启动默认使用 `a100_ddp` 的正式预训练、基线、微调和评估。
 
-全部五个数据集转换完成后，执行完整审计：
+执行完整审计：
 
 ```powershell
 powershell -File scripts\powershell\01_AuditCanonical.ps1 -H5Samples 20
 ```
 
-通过标准：没有缺失 H5、无 schema 错误，抽样信号为 `[time, 16]`；结果位于 `D:\Fmodel\runs\audits\audit-*.json` 与 CSV。若 emg2pose 尚未完成，只应在它完成后执行此全量门槛，不应用不完整语料得出通过结论。
+通过标准：没有缺失 H5、无 schema 错误，抽样信号为 `[time, 16]`；结果位于 `D:\Fmodel\runs\audits\audit-*.json` 与 CSV。
 
-## 2. 创建并冻结切分文件
+## 2. 生成切分并冻结文件
 
 先显示将执行的严格主体切分命令，再真正运行：
 
@@ -143,7 +152,7 @@ powershell -File scripts\powershell\04_TrainBaseline.ps1 -Model aemg -Stage fine
 
 ```powershell
 $TaskCandidates = @(Get-ChildItem 'D:\Fmodel\runs\finetune\official-seed-20260916\pose\full\budget-1\seed-0\checkpoint-*\checkpoints\last.ckpt')
-if ($TaskCandidates.Count -ne 1) { throw "expected exactly one task checkpoint, found $($TaskCandidates.Count)" }
+if ($TaskCandidates.Count -ne 1) { throw "应当恰好找到一个任务 checkpoint，实际为 $($TaskCandidates.Count)" }
 $TaskCkpt = $TaskCandidates[0].FullName
 powershell -File scripts\powershell\07_Evaluate.ps1 -Task pose -CheckpointPath $TaskCkpt -Protocol $Protocol -SplitSeed $SplitSeed -Seed 0 -SavePredictions
 ```
@@ -160,7 +169,7 @@ powershell -File scripts\powershell\08_Robustness.ps1 -Task pose -Condition All 
 
 条件是 `none`、`channel_rotation`、`channel_dropout`、`gain_drift`、`additive_noise` 和 `temporal_loss`。输出分别位于 `runs\robustness\<protocol>-seed-<split-seed>\<task>\<condition>\seed-<train-seed>\checkpoint-<12位路径哈希>`，因此不同种子、checkpoint 或条件的结果不会混写。
 
-## 9. 安全管道与常见恢复方式
+## 9. 安全管道与失败恢复
 
 只需编排预检、审计、切分和烟雾测试时，可先干跑：
 

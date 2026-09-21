@@ -1,88 +1,104 @@
-# Meta16 training workflow
+# Meta16 完整训练流程
 
-## Corpus and protocol
+## 语料与切分协议
 
-The canonical root is `D:\Fmodel\emg_data_canonical`. The completed manifest audited on 2026-09-21 contains 28,609 records, 601 subjects, 14,893 sessions, and 1,396.474 hours. Do not commit data, manifests, checkpoints, predictions, or `D:\Fmodel\runs` artifacts.
+规范数据根目录为 `D:\Fmodel\emg_data_canonical`。2026-09-21 的完整审计结果为 28,609 条记录、601 个 subject、14,893 个 session，共 1,396.474 小时。数据、manifest、checkpoint、预测结果和 `D:\Fmodel\runs` 运行产物不得提交到 Git。
 
-| Task | Dataset records | Primary target |
+| 任务 ID | 记录数 | 主要目标 |
 | --- | ---: | --- |
-| pose | 25,253 | joint-angle regression |
-| typing | 2,270 | text decoding |
-| discrete_gesture | 100 | gesture class |
-| handwriting | 804 | handwriting trace/event |
-| wrist_angle | 182 | wrist-angle regression |
+| pose | 25,253 | 关节角回归 |
+| typing | 2,270 | 文本解码 |
+| discrete_gesture | 100 | 手势分类/事件识别 |
+| handwriting | 804 | 书写轨迹或事件识别 |
+| wrist_angle | 182 | 腕关节角回归 |
 
-`Official` preserves release `official_split` labels; it can legitimately span a subject across splits. `StrictSubject` copies the manifest, replaces every official assignment with `unknown`, then deterministically splits dataset/subject/pair groups. Use one protocol per reported result and state it in every result table.
+`Official` 保留数据发布方给出的 `official_split`；同一 subject 可能按发布协议跨越多个 split。`StrictSubject` 复制 manifest，将官方分配改为 `unknown`，再按 dataset、subject 和 pair 分组进行确定性切分。同一张结果表只能使用一种协议，并必须在表中明确标注。
 
-For every stage after `02_PrepareSplits.ps1`, select the exact split with either `-SplitsPath` or `-Protocol` plus `-SplitSeed`. The examples below use the latter. Output directories include that selection and refuse accidental reuse unless `-Force` is explicitly supplied. See [the detailed execution guide](POST_CONVERSION_EXECUTION_GUIDE.md) for the complete command sequence and recovery steps.
+从 `02_PrepareSplits.ps1` 之后的每个阶段都必须明确选择 split：使用 `-SplitsPath`，或者同时使用 `-Protocol` 与 `-SplitSeed`，两种方式不可混用。以下示例使用协议与种子。输出目录包含切分身份，已有目录默认拒绝复用，只有显式传入 `-Force` 才允许继续。完整命令和失败恢复方式见[转换完成后的详细执行指南](POST_CONVERSION_EXECUTION_GUIDE.md)。
 
-## Stage gates
+## 阶段门槛
 
-1. Preflight checks Python packages, entry points, the canonical root, and `manifest.csv`.
+### 1. 环境预检
+
+检查 Python 依赖、训练入口、规范数据根和 `manifest.csv`。
 
 ```powershell
 powershell -File scripts\powershell\00_Preflight.ps1
 ```
 
-Pass gate: command exits zero. Output: package/CUDA probe only.
+通过标准：命令退出码为 0，并打印 PyTorch 版本和 CUDA 可用性。若 CUDA 为 `False`，只能执行 CPU 烟雾测试，不能启动默认的 `a100_ddp` 正式训练。
 
-2. Audit verifies paths, allowed task/split vocabulary, corpus totals, and sampled `signal/emg` arrays shaped `[time, 16]`.
+### 2. 数据审计
+
+检查所有路径、允许的 task/split 取值、语料总量，以及抽样 H5 中形状为 `[time, 16]` 的 `signal/emg`。
 
 ```powershell
 powershell -File scripts\powershell\01_AuditCanonical.ps1 -H5Samples 20
 ```
 
-Pass gate: zero missing files and schema errors. Outputs: `D:\Fmodel\runs\audits\audit-*.json` and CSV.
+通过标准：缺失文件和 schema 错误均为 0。输出位于 `D:\Fmodel\runs\audits\audit-*.json` 及对应 CSV。
 
-3. Prepare the protocol-specific split file. Use `-DryRun` before `-Force`; neither protocol overwrites `manifest.csv`.
+### 3. 生成切分
+
+为两种协议生成带种子的 split 文件。使用 `-Force` 前应先执行 `-DryRun`；任何协议都不会覆盖 `manifest.csv`。
 
 ```powershell
 powershell -File scripts\powershell\02_PrepareSplits.ps1 -Protocol Official -Seed 20260916
 powershell -File scripts\powershell\02_PrepareSplits.ps1 -Protocol StrictSubject -Seed 20260916
 ```
 
-Pass gate: task-by-split counts print; StrictSubject also prints leakage-check PASS. Outputs: `splits.official.seed-20260916.csv` or `splits.strict-subject.seed-20260916.csv`.
+通过标准：打印每个 task 的 train/val/test 数量；StrictSubject 还必须打印 `Strict-subject leakage check: PASS`。输出为 `splits.official.seed-20260916.csv` 和 `splits.strict-subject.seed-20260916.csv`。
 
-4. Run real-data fast-dev smoke tests for all five tasks before GPU work.
+### 4. 五任务 CPU 烟雾测试
+
+正式 GPU 实验前，对全部五个任务运行真实数据 fast-dev 流程。
 
 ```powershell
 powershell -File scripts\powershell\03_SmokeTest.ps1 -Task All -Protocol Official -SplitSeed 20260916
 ```
 
-Pass gate: five Lightning CPU runs finish with `data.num_workers=0`. Outputs: `runs\smoke\official-seed-20260916\<task>\seed-0`.
+通过标准：五个 Lightning CPU 运行全部完成，并使用 `data.num_workers=0`。输出位于 `runs\smoke\official-seed-20260916\<task>\seed-0`。
 
-5. Establish comparison baselines with `supervised_tcn`, `bendr`, `cbramod`, or `aemg`.
+### 5. 比较基线
+
+使用 `supervised_tcn`、`bendr`、`cbramod` 或 `aemg` 建立对比基线。
 
 ```powershell
 powershell -File scripts\powershell\04_TrainBaseline.ps1 -Model bendr -Stage finetune -Task pose -LabelBudget 1.0 -Protocol Official -SplitSeed 20260916
 ```
 
-6. Start CIRCE-Myo with a bounded pilot, inspect loss/config/manifest metadata, then request compute for Full mode. Full 100,000-step training is not run by this delivery.
+### 6. CIRCE-Myo 预训练
+
+先运行有界 `Pilot`，检查 loss、resolved config 和 manifest 元数据，再在 CUDA 主机启动 `Full`。本次代码交付不会自动运行 100,000 step 的正式训练。
 
 ```powershell
 powershell -File scripts\powershell\05_Pretrain.ps1 -Mode Pilot -MaxSteps 200 -Devices 1 -Protocol Official -SplitSeed 20260916
 powershell -File scripts\powershell\05_Pretrain.ps1 -Mode Full -MaxSteps 100000 -Devices 1 -Protocol Official -SplitSeed 20260916
 ```
 
-7. Fine-tune each task at label budgets 0.01, 0.05, 0.10, and 1.0 with `probe`, `partial`, and `full` modes. Then evaluate only trusted checkpoints produced by this repository.
+### 7. 下游微调与独立评估
+
+对每个任务使用 `0.01`、`0.05`、`0.10` 和 `1.0` 标签预算，并分别运行 `probe`、`partial`、`full`。评估时只使用本仓库产生且来源明确的 checkpoint。
 
 ```powershell
 $PretrainCkpt = 'D:\Fmodel\runs\pretrain\official-seed-20260916\full\steps-100000\devices-1\accum-1\batch-8\seed-0\checkpoints\last.ckpt'
 powershell -File scripts\powershell\06_Finetune.ps1 -Task pose -FinetuneMode probe -LabelBudget 0.1 -PretrainedCheckpoint $PretrainCkpt -Protocol Official -SplitSeed 20260916
 $FinetuneCandidates = @(Get-ChildItem 'D:\Fmodel\runs\finetune\official-seed-20260916\pose\probe\budget-0.1\seed-0\checkpoint-*\checkpoints\last.ckpt')
-if ($FinetuneCandidates.Count -ne 1) { throw "expected exactly one checkpoint, found $($FinetuneCandidates.Count)" }
+if ($FinetuneCandidates.Count -ne 1) { throw "应当恰好找到一个 checkpoint，实际为 $($FinetuneCandidates.Count)" }
 $FinetuneCkpt = $FinetuneCandidates[0].FullName
 powershell -File scripts\powershell\07_Evaluate.ps1 -Task pose -CheckpointPath $FinetuneCkpt -Protocol Official -SplitSeed 20260916
 ```
 
-Evaluation writes resolved configuration, manifest digest, environment metadata, overall/per-subject metrics, and optional predictions.
+评估输出包含 resolved config、manifest digest、环境元数据、整体指标、per-subject 指标以及可选预测结果。
 
-8. Evaluate robustness independently under clean, channel rotation, channel dropout, gain drift, additive noise, and temporal loss.
+### 8. 鲁棒性评估
+
+分别评估 clean、channel rotation、channel dropout、gain drift、additive noise 和 temporal loss 条件。
 
 ```powershell
 powershell -File scripts\powershell\08_Robustness.ps1 -Task pose -Condition All -CheckpointPath $FinetuneCkpt -Protocol Official -SplitSeed 20260916
 ```
 
-Each condition gets its own output directory. The complete multi-seed robustness grid is not run by this delivery.
+每种条件使用独立输出目录。本次代码交付不会自动运行完整的多 seed 鲁棒性网格。
 
-Use `RunPipeline.ps1 -Stages Preflight,Audit,Splits,Smoke -Protocol Official -SplitSeed 20260916 -DryRun` to inspect a safe ordered sequence. It never adds expensive stages automatically.
+使用 `RunPipeline.ps1 -Stages Preflight,Audit,Splits,Smoke -Protocol Official -SplitSeed 20260916 -DryRun` 可以检查安全的阶段顺序。管道只运行 `-Stages` 明确列出的阶段，不会自动加入昂贵训练阶段。
