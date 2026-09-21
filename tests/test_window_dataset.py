@@ -123,6 +123,18 @@ def test_from_manifest_filters_records_by_task_id(canonical_meta_root):
     assert tasks == {"pose"}
 
 
+def test_task_filtered_dataset_ignores_missing_other_task_records(canonical_meta_root):
+    (canonical_meta_root / "pose" / "pose_right.h5").unlink()
+
+    ds = CanonicalWindowDataset.from_manifest(
+        canonical_meta_root / "manifest.csv", split="train", window_ms=200, stride_ms=100,
+        root=canonical_meta_root, task_id="typing",
+    )
+
+    tasks = {ds._records[path]["task_id"] for path, _, _ in ds._index}
+    assert tasks == {"typing"}
+
+
 def test_from_manifest_rejects_a_task_id_absent_from_the_manifest(canonical_meta_root):
     with pytest.raises(ValueError, match="task_id"):
         CanonicalWindowDataset.from_manifest(

@@ -19,7 +19,7 @@ $entryPoint=Join-Path $ProjectRoot 'finetune.py'; Assert-File $entryPoint 'finet
 foreach ($item in @(@{Value=$PretrainedCheckpoint;Label='pretrained checkpoint'},@{Value=$ResumeFrom;Label='resume checkpoint'})) {
     if (-not [string]::IsNullOrWhiteSpace($item.Value)) { $resolved=Resolve-FullPath $item.Value; if (-not $DryRun) { Assert-File $resolved $item.Label }; if ($item.Label -eq 'pretrained checkpoint') {$PretrainedCheckpoint=$resolved} else {$ResumeFrom=$resolved} }
 }
-$outputDirectory=Join-Path $RunsRoot "finetune\$splitSlug\$Task\$FinetuneMode\budget-$LabelBudget\seed-$Seed"; Assert-OutputDirectoryAvailable -Path $outputDirectory -Force:$Force -DryRun:$DryRun
+$initializationSlug=Get-CheckpointRunSlug -CheckpointPath $PretrainedCheckpoint; $outputDirectory=Join-Path $RunsRoot "finetune\$splitSlug\$Task\$FinetuneMode\budget-$LabelBudget\seed-$Seed\$initializationSlug"; Assert-OutputDirectoryAvailable -Path $outputDirectory -Force:$Force -DryRun:$DryRun
 $arguments=@($entryPoint,"trainer=$Trainer","task=$Task","data.root=$CanonicalRoot","data.manifest_path=$SplitsPath","seed=$Seed","label_budget=$LabelBudget","finetune_mode=$FinetuneMode","unfrozen_blocks=$UnfrozenBlocks","hydra.run.dir=$outputDirectory")
 if ($PretrainedCheckpoint) {$arguments += "pretrained_checkpoint=$PretrainedCheckpoint"}; if ($ResumeFrom) {$arguments += "resume_from=$ResumeFrom"}
 Invoke-Checked $Python $arguments -DryRun:$DryRun

@@ -30,11 +30,24 @@ if ($selected.Count -eq 0) { throw 'Stages must contain at least one stage name'
 foreach ($stage in $selected) {
     if (-not $stageMap.ContainsKey($stage)) { throw "unknown stage: $stage" }
 }
+$splitStageIndex = [Array]::IndexOf($selected, 'Splits')
+$consumerIndices = @(
+    for ($index = 0; $index -lt $selected.Count; $index++) {
+        if ($selected[$index] -in $splitConsumerStages) { $index }
+    }
+)
+if ($splitStageIndex -ge 0 -and $consumerIndices.Count -gt 0 -and $splitStageIndex -gt ($consumerIndices | Measure-Object -Minimum).Minimum) {
+    throw 'Splits must precede every split-consuming stage in -Stages'
+}
 
 $needsSplit = @($selected | Where-Object { $_ -eq 'Splits' -or $_ -in $splitConsumerStages }).Count -gt 0
 $selectedSplitPath = ''
+$usingExplicitSplitsPath = -not [string]::IsNullOrWhiteSpace($SplitsPath)
+if ($usingExplicitSplitsPath -and (-not [string]::IsNullOrWhiteSpace($Protocol) -or $null -ne $SplitSeed)) {
+    throw 'cannot combine -SplitsPath with -Protocol or -SplitSeed'
+}
 if ($needsSplit) {
-    if (-not [string]::IsNullOrWhiteSpace($SplitsPath)) {
+    if ($usingExplicitSplitsPath) {
         if ($selected -contains 'Splits') {
             throw 'cannot combine -SplitsPath with the Splits stage; select -Protocol and -SplitSeed instead'
         }
@@ -63,11 +76,14 @@ foreach ($stage in $selected) {
         if ($Force) { $arguments.Force = $true }
     }
     elseif ($stage -in $splitConsumerStages) {
-        $arguments.SplitsPath = $selectedSplitPath
-        $arguments.Protocol = $Protocol
-        $arguments.SplitSeed = $SplitSeed
+        if ($usingExplicitSplitsPath) {
+            $arguments.SplitsPath = $selectedSplitPath
+        }
+        else {
+            $arguments.Protocol = $Protocol
+            $arguments.SplitSeed = $SplitSeed
+        }
         if ($Force) { $arguments.Force = $true }
-        $splitStageIndex = [Array]::IndexOf($selected, 'Splits')
         $currentStageIndex = [Array]::IndexOf($selected, $stage)
         if ($DryRun -and $splitStageIndex -ge 0 -and $splitStageIndex -lt $currentStageIndex) {
             $arguments.AllowMissingSplit = $true

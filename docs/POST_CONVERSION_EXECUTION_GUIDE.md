@@ -33,7 +33,7 @@ python -m pip install -r requirements-train.txt
 powershell -File scripts\powershell\00_Preflight.ps1
 ```
 
-通过标准：两个命令退出码为 0；预检会显示 PyTorch 版本和 CUDA 可用性。
+通过标准：两个命令退出码为 0；预检会显示 PyTorch 版本和 CUDA 可用性。若显示 `False`，只能运行 `cpu_smoke`，不得在该环境启动默认使用 `a100_ddp` 的正式预训练、基线、微调和评估。
 
 全部五个数据集转换完成后，执行完整审计：
 
@@ -76,7 +76,7 @@ powershell -File scripts\powershell\03_SmokeTest.ps1 -Task All -Protocol $Protoc
 powershell -File scripts\powershell\03_SmokeTest.ps1 -Task typing -Protocol $Protocol -SplitSeed $SplitSeed
 ```
 
-通过标准：所有指定任务退出码为 0，输出在 `D:\Fmodel\runs\smoke\<protocol>-seed-<seed>\<task>`。先以 `-DryRun` 检查命令；若同一输出目录已有一次完成或中断运行，应改变 `-Seed` 或清楚确认后使用 `-Force`。
+通过标准：所有指定任务退出码为 0，输出在 `D:\Fmodel\runs\smoke\<protocol>-seed-<split-seed>\<task>\seed-<train-seed>`。先以 `-DryRun` 检查命令；改变 `-Seed` 会产生独立目录。只有要有意复用完全相同的目录时才使用 `-Force`。
 
 ## 4. CIRCE-Myo 预训练
 
@@ -89,7 +89,7 @@ powershell -File scripts\powershell\05_Pretrain.ps1 -Mode Pilot -MaxSteps 200 -D
 pilot 输出为：
 
 ```text
-D:\Fmodel\runs\pretrain\<protocol>-seed-<split-seed>\pilot\seed-0
+D:\Fmodel\runs\pretrain\<protocol>-seed-<split-seed>\pilot\steps-200\devices-1\accum-1\batch-8\seed-0
 ```
 
 完整训练必须显式给出步数，不会由脚本自动启动：
@@ -101,7 +101,7 @@ powershell -File scripts\powershell\05_Pretrain.ps1 -Mode Full -MaxSteps 100000 
 恢复中断的完整训练：
 
 ```powershell
-$PretrainCkpt = 'D:\Fmodel\runs\pretrain\official-seed-20260916\full\seed-0\checkpoints\last.ckpt'
+$PretrainCkpt = 'D:\Fmodel\runs\pretrain\official-seed-20260916\full\steps-100000\devices-1\accum-1\batch-8\seed-0\checkpoints\last.ckpt'
 powershell -File scripts\powershell\05_Pretrain.ps1 -Mode Resume -MaxSteps 100000 -ResumeFrom $PretrainCkpt -Devices 1 -BatchSize 8 -Protocol $Protocol -SplitSeed $SplitSeed -Seed 0 -Force
 ```
 
@@ -112,7 +112,7 @@ powershell -File scripts\powershell\05_Pretrain.ps1 -Mode Resume -MaxSteps 10000
 对每个任务运行标签预算 `0.01, 0.05, 0.10, 1.0`，以及 `probe`、`partial`、`full` 三种微调模式；每一个组合均使用同一个预训练 checkpoint、协议和 split seed。下面是一个 `pose/probe/10%` 示例：
 
 ```powershell
-$PretrainCkpt = 'D:\Fmodel\runs\pretrain\official-seed-20260916\full\seed-0\checkpoints\last.ckpt'
+$PretrainCkpt = 'D:\Fmodel\runs\pretrain\official-seed-20260916\full\steps-100000\devices-1\accum-1\batch-8\seed-0\checkpoints\last.ckpt'
 powershell -File scripts\powershell\06_Finetune.ps1 -Task pose -FinetuneMode probe -LabelBudget 0.10 -PretrainedCheckpoint $PretrainCkpt -Protocol $Protocol -SplitSeed $SplitSeed -Seed 0
 ```
 
@@ -122,7 +122,7 @@ powershell -File scripts\powershell\06_Finetune.ps1 -Task pose -FinetuneMode pro
 powershell -File scripts\powershell\06_Finetune.ps1 -Task typing -FinetuneMode full -LabelBudget 1.0 -PretrainedCheckpoint $PretrainCkpt -Protocol $Protocol -SplitSeed $SplitSeed -Seed 0
 ```
 
-输出目录模式为 `D:\Fmodel\runs\finetune\<protocol>-seed-<split-seed>\<task>\<mode>\budget-<budget>\seed-<train-seed>`。正式报告至少重复 `Seed 0,1,2`；报告每种协议时不得混合随机种子或标签预算。
+输出目录模式为 `D:\Fmodel\runs\finetune\<protocol>-seed-<split-seed>\<task>\<mode>\budget-<budget>\seed-<train-seed>\checkpoint-<12位路径哈希>`；最后一段由初始化 checkpoint 的绝对路径自动生成。正式报告至少重复 `Seed 0,1,2`；报告每种协议时不得混合随机种子或标签预算。
 
 ## 6. 监督基线与其他基线
 
@@ -142,11 +142,13 @@ powershell -File scripts\powershell\04_TrainBaseline.ps1 -Model aemg -Stage fine
 不要在尚未确认来源的 checkpoint 上报告结果。评估时显式写出模型 checkpoint 和切分：
 
 ```powershell
-$TaskCkpt = 'D:\Fmodel\runs\finetune\official-seed-20260916\pose\full\budget-1\seed-0\checkpoints\last.ckpt'
+$TaskCandidates = @(Get-ChildItem 'D:\Fmodel\runs\finetune\official-seed-20260916\pose\full\budget-1\seed-0\checkpoint-*\checkpoints\last.ckpt')
+if ($TaskCandidates.Count -ne 1) { throw "expected exactly one task checkpoint, found $($TaskCandidates.Count)" }
+$TaskCkpt = $TaskCandidates[0].FullName
 powershell -File scripts\powershell\07_Evaluate.ps1 -Task pose -CheckpointPath $TaskCkpt -Protocol $Protocol -SplitSeed $SplitSeed -Seed 0 -SavePredictions
 ```
 
-输出为 `runs\evaluation\<protocol>-seed-<split-seed>\<task>\seed-<train-seed>`，其中应包含整体和 per-subject 指标、resolved config、manifest digest 与环境元数据。评估前先用 `-DryRun`；它不检查 checkpoint 是否存在，真实执行则会检查。
+输出为 `runs\evaluation\<protocol>-seed-<split-seed>\<task>\seed-<train-seed>\checkpoint-<12位路径哈希>`，其中最后一段由评估 checkpoint 自动生成；目录中应包含整体和 per-subject 指标、resolved config、manifest digest 与环境元数据。评估前先用 `-DryRun`；它不检查 checkpoint 是否存在，真实执行则会检查。
 
 ## 8. 鲁棒性对比
 
@@ -156,7 +158,7 @@ powershell -File scripts\powershell\07_Evaluate.ps1 -Task pose -CheckpointPath $
 powershell -File scripts\powershell\08_Robustness.ps1 -Task pose -Condition All -CheckpointPath $TaskCkpt -Protocol $Protocol -SplitSeed $SplitSeed -Seed 0
 ```
 
-条件是 `none`、`channel_rotation`、`channel_dropout`、`gain_drift`、`additive_noise` 和 `temporal_loss`。输出分别位于 `runs\robustness\<protocol>-seed-<split-seed>\<task>\<condition>`，因此任何单一条件的失败不会覆盖其余结果。
+条件是 `none`、`channel_rotation`、`channel_dropout`、`gain_drift`、`additive_noise` 和 `temporal_loss`。输出分别位于 `runs\robustness\<protocol>-seed-<split-seed>\<task>\<condition>\seed-<train-seed>\checkpoint-<12位路径哈希>`，因此不同种子、checkpoint 或条件的结果不会混写。
 
 ## 9. 安全管道与常见恢复方式
 

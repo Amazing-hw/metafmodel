@@ -115,10 +115,18 @@ def test_audit_dry_run_calls_read_only_python_auditor():
     ],
 )
 def test_split_dry_run_keeps_protocol_outputs_separate(
-    protocol: str, expected_manifest: str, expected_output: str
+    tmp_path: Path, protocol: str, expected_manifest: str, expected_output: str
 ):
+    canonical = tmp_path / "canonical"
+    canonical.mkdir()
+    (canonical / "manifest.csv").write_text(
+        "dataset_id,subject_id,official_split\nexample,subject,train\n",
+        encoding="utf-8",
+    )
     result = run_script(
         "02_PrepareSplits.ps1",
+        "-CanonicalRoot",
+        str(canonical),
         "-DryRun",
         "-Protocol",
         protocol,
@@ -282,9 +290,16 @@ def test_robustness_all_dry_run_uses_separate_condition_outputs():
         assert rf"\pose\{condition}" in output
 
 
-def test_pipeline_requires_explicit_safe_stage_list_and_forwards_dry_run():
+def test_pipeline_requires_explicit_safe_stage_list_and_forwards_dry_run(tmp_path: Path):
+    canonical = tmp_path / "canonical"
+    canonical.mkdir()
+    (canonical / "manifest.csv").write_text(
+        "dataset_id,subject_id,official_split\nexample,subject,train\n",
+        encoding="utf-8",
+    )
     result = run_script(
         "RunPipeline.ps1", "-Stages", "Preflight,Audit,Splits,Smoke",
+        "-CanonicalRoot", str(canonical), "-RunsRoot", str(tmp_path / "runs"),
         "-Protocol", "Official", "-SplitSeed", "20260916", "-DryRun",
     )
     output = result.stdout + result.stderr
@@ -338,7 +353,7 @@ def test_existing_output_requires_force(tmp_path: Path):
     selected = canonical / "splits.official.seed-17.csv"
     selected.write_text("path\n", encoding="utf-8")
     runs = tmp_path / "runs"
-    (runs / "smoke" / "official-seed-17" / "pose").mkdir(parents=True)
+    (runs / "smoke" / "official-seed-17" / "pose" / "seed-0").mkdir(parents=True)
 
     result = run_script(
         "03_SmokeTest.ps1", "-CanonicalRoot", str(canonical),
@@ -373,3 +388,102 @@ def test_pipeline_forwards_selected_split_from_splits_stage_in_dry_run(tmp_path:
     output = result.stdout + result.stderr
     assert result.returncode == 0, output
     assert output.count("splits.strict-subject.seed-17.csv") >= 2
+
+
+def test_pipeline_accepts_a_custom_split_without_protocol(tmp_path: Path):
+    canonical = tmp_path / "canonical"
+    canonical.mkdir()
+    selected = canonical / "custom.csv"
+    selected.write_text("path\n", encoding="utf-8")
+    result = run_script(
+        "RunPipeline.ps1", "-CanonicalRoot", str(canonical),
+        "-RunsRoot", str(tmp_path / "runs"), "-Stages", "Smoke",
+        "-SplitsPath", str(selected), "-DryRun", include_split=False,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert selected.name in output
+
+
+def test_training_rejects_ambiguous_split_selection(tmp_path: Path):
+    canonical = tmp_path / "canonical"
+    canonical.mkdir()
+    selected = canonical / "custom.csv"
+    selected.write_text("path\n", encoding="utf-8")
+    result = run_script(
+        "03_SmokeTest.ps1", "-CanonicalRoot", str(canonical),
+        "-SplitsPath", str(selected), "-Protocol", "Official", "-SplitSeed", "17",
+        "-DryRun", include_split=False,
+    )
+    assert result.returncode != 0
+    assert "cannot combine" in result.stdout + result.stderr
+
+
+def test_pipeline_rejects_ambiguous_split_selection(tmp_path: Path):
+    canonical = tmp_path / "canonical"
+    canonical.mkdir()
+    selected = canonical / "custom.csv"
+    selected.write_text("path\n", encoding="utf-8")
+    result = run_script(
+        "RunPipeline.ps1", "-CanonicalRoot", str(canonical), "-Stages", "Smoke",
+        "-SplitsPath", str(selected), "-Protocol", "Official", "-SplitSeed", "17",
+        "-DryRun", include_split=False,
+    )
+    assert result.returncode != 0
+    assert "cannot combine" in result.stdout + result.stderr
+
+
+def test_baseline_output_distinguishes_budget_and_finetune_mode(tmp_path: Path):
+    canonical = tmp_path / "canonical"
+    canonical.mkdir()
+    (canonical / "splits.official.seed-17.csv").write_text("path\n", encoding="utf-8")
+    common = (
+        "04_TrainBaseline.ps1", "-Model", "bendr", "-Stage", "finetune",
+        "-Task", "typing", "-CanonicalRoot", str(canonical), "-Protocol", "Official",
+        "-SplitSeed", "17", "-DryRun",
+    )
+    probe = run_script(*common, "-FinetuneMode", "probe", "-LabelBudget", "0.1", include_split=False)
+    full = run_script(*common, "-FinetuneMode", "full", "-LabelBudget", "1.0", include_split=False)
+    probe_output = probe.stdout + probe.stderr
+    full_output = full.stdout + full.stderr
+    assert probe.returncode == 0, probe_output
+    assert full.returncode == 0, full_output
+    assert "\\probe\\budget-0.1\\seed-0" in probe_output
+    assert "\\full\\budget-1\\seed-0" in full_output
+
+
+def test_output_paths_include_runtime_identity_for_seed_and_checkpoint(tmp_path: Path):
+    canonical = tmp_path / "canonical"
+    canonical.mkdir()
+    (canonical / "splits.official.seed-17.csv").write_text("path\n", encoding="utf-8")
+    smoke = run_script(
+        "03_SmokeTest.ps1", "-Task", "typing", "-Protocol", "Official",
+        "-CanonicalRoot", str(canonical), "-SplitSeed", "17", "-Seed", "3", "-DryRun",
+        include_split=False,
+    )
+    robustness_a = run_script(
+        "08_Robustness.ps1", "-Task", "typing", "-Condition", "none",
+        "-CheckpointPath", r"D:\Fmodel\runs\a.ckpt", "-Protocol", "Official",
+        "-CanonicalRoot", str(canonical), "-SplitSeed", "17", "-Seed", "3", "-DryRun",
+        include_split=False,
+    )
+    robustness_b = run_script(
+        "08_Robustness.ps1", "-Task", "typing", "-Condition", "none",
+        "-CheckpointPath", r"D:\Fmodel\runs\b.ckpt", "-Protocol", "Official",
+        "-CanonicalRoot", str(canonical), "-SplitSeed", "17", "-Seed", "3", "-DryRun",
+        include_split=False,
+    )
+    assert smoke.returncode == 0, smoke.stdout + smoke.stderr
+    assert "\\typing\\seed-3" in smoke.stdout + smoke.stderr
+    assert robustness_a.returncode == 0, robustness_a.stdout + robustness_a.stderr
+    assert robustness_b.returncode == 0, robustness_b.stdout + robustness_b.stderr
+    assert robustness_a.stdout != robustness_b.stdout
+
+
+def test_pipeline_rejects_splits_after_a_consumer():
+    result = run_script(
+        "RunPipeline.ps1", "-Stages", "Smoke,Splits", "-Protocol", "Official",
+        "-SplitSeed", "17", "-DryRun", include_split=False,
+    )
+    assert result.returncode != 0
+    assert "Splits must precede" in result.stdout + result.stderr

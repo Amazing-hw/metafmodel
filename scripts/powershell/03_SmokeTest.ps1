@@ -39,7 +39,7 @@ else {
 }
 
 foreach ($taskName in $tasks) {
-    $outputDirectory = Join-Path $RunsRoot "smoke\$splitSlug\$taskName"
+    $outputDirectory = Join-Path $RunsRoot "smoke\$splitSlug\$taskName\seed-$Seed"
     Assert-OutputDirectoryAvailable -Path $outputDirectory -Force:$Force -DryRun:$DryRun
     $arguments = @(
         $entryPoint,

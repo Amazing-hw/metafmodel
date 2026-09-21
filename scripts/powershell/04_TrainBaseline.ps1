@@ -57,7 +57,8 @@ if (-not [string]::IsNullOrWhiteSpace($ResumeFrom)) {
     }
 }
 
-$outputDirectory = Join-Path $RunsRoot "baselines\$splitSlug\$Model\$Stage\$Task\seed-$Seed"
+$initializationSlug = Get-CheckpointRunSlug -CheckpointPath $PretrainedCheckpoint
+$outputDirectory = Join-Path $RunsRoot "baselines\$splitSlug\$Model\$Stage\$Task\$FinetuneMode\budget-$LabelBudget\seed-$Seed\$initializationSlug"
 Assert-OutputDirectoryAvailable -Path $outputDirectory -Force:$Force -DryRun:$DryRun
 $arguments = @(
     $entryPoint,

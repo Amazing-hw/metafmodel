@@ -21,7 +21,7 @@ REQUIRED_COLUMNS = {
 }
 
 
-def load_manifest(manifest_path, root):
+def load_manifest(manifest_path, root, task_id: str | None = None):
     """Load a canonical manifest, validate its schema, and resolve record paths."""
     manifest_path = Path(manifest_path)
     root = Path(root)
@@ -40,6 +40,10 @@ def load_manifest(manifest_path, root):
             raise ValueError(f"record path outside root: {value}") from exc
         resolved_paths.append(resolved)
     frame["resolved_path"] = resolved_paths
+    if task_id is not None:
+        frame = frame.loc[frame["task_id"].astype(str) == str(task_id)].copy()
+        if frame.empty:
+            raise ValueError(f"no manifest records have task_id {task_id!r}")
     absent = [str(path) for path in frame["resolved_path"] if not path.is_file()]
     if absent:
         preview = ", ".join(absent[:3])

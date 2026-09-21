@@ -93,7 +93,13 @@ function Resolve-SplitManifest {
         [switch]$AllowMissing
     )
 
-    if (-not [string]::IsNullOrWhiteSpace($SplitsPath)) {
+    $hasSplitsPath = -not [string]::IsNullOrWhiteSpace($SplitsPath)
+    $hasProtocol = -not [string]::IsNullOrWhiteSpace($Protocol)
+    $hasSplitSeed = $null -ne $SplitSeed
+    if ($hasSplitsPath -and ($hasProtocol -or $hasSplitSeed)) {
+        throw 'cannot combine -SplitsPath with -Protocol or -SplitSeed'
+    }
+    if ($hasSplitsPath) {
         $resolved = Resolve-FullPath -Path $SplitsPath
         if (-not $AllowMissing) {
             Assert-File -Path $resolved -Label 'selected split manifest'
@@ -122,6 +128,18 @@ function Get-SplitRunSlug {
     $hash = [Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
     $hex = ([BitConverter]::ToString($hash) -replace '-', '').ToLowerInvariant()
     return "custom-$($hex.Substring(0, 12))"
+}
+
+function Get-CheckpointRunSlug {
+    param([string]$CheckpointPath)
+
+    if ([string]::IsNullOrWhiteSpace($CheckpointPath)) {
+        return 'scratch'
+    }
+    $bytes = [Text.Encoding]::UTF8.GetBytes((Resolve-FullPath -Path $CheckpointPath))
+    $hash = [Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
+    $hex = ([BitConverter]::ToString($hash) -replace '-', '').ToLowerInvariant()
+    return "checkpoint-$($hex.Substring(0, 12))"
 }
 
 function Assert-OutputDirectoryAvailable {

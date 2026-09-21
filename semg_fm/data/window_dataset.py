@@ -94,7 +94,7 @@ class CanonicalWindowDataset(Dataset):
             raise ValueError(f"split must be one of {sorted(OFFICIAL_SPLITS)}")
         manifest_path = Path(manifest_path)
         root = Path(root) if root is not None else manifest_path.parent
-        frame = load_manifest(manifest_path, root)
+        frame = load_manifest(manifest_path, root, task_id=task_id)
         if task_id is not None and task_id not in set(frame["task_id"].astype(str)):
             raise ValueError(f"no manifest records have task_id {task_id!r}")
         records = []

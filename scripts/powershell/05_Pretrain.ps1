@@ -54,7 +54,7 @@ if (-not [string]::IsNullOrWhiteSpace($ResumeFrom)) {
 }
 
 $modeSlug = $Mode.ToLowerInvariant()
-$outputDirectory = Join-Path $RunsRoot "pretrain\$splitSlug\$modeSlug\seed-$Seed"
+$outputDirectory = Join-Path $RunsRoot "pretrain\$splitSlug\$modeSlug\steps-$MaxSteps\devices-$Devices\accum-$AccumulateGradBatches\batch-$BatchSize\seed-$Seed"
 Assert-OutputDirectoryAvailable -Path $outputDirectory -Force:$Force -DryRun:$DryRun
 $globalBatchSize = $Devices * $AccumulateGradBatches * $BatchSize
 Write-Host "mode=$Mode"
