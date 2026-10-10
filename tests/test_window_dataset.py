@@ -304,8 +304,8 @@ def test_wrist_targets_are_name_keyed_and_aligned(canonical_meta_root):
         stride_ms=100, root=canonical_meta_root,
     )
     item = ds[0]
-    assert set(item["target"]) == {"flexion_extension", "pronation"}
-    assert all(value.shape == (400,) for value in item["target"].values())
+    assert set(item["target"]) == {"wrist_angles"}
+    assert all(value.shape == (400, 2) for value in item["target"].values())
     assert all(value.dtype == torch.bool for value in item["target_mask"].values())
 
 

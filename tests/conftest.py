@@ -61,10 +61,17 @@ def canonical_meta_root(tmp_path):
                     text = h5py.string_dtype("utf-8")
                     labels.create_dataset("prompts", data=np.array([("hello", 0.0, 0.2995)], dtype=[("text", text), ("start_s", np.float64), ("end_s", np.float64)]))
                 else:
+                    # 真实 gni_wrist H5 的 /labels/targets/wrist_angles 是
+                    # (T, 2)（flexion/extension 与 radial/ulnar），夹具保持同形。
                     labels = h5.create_group("labels")
                     targets = labels.create_group("targets")
-                    targets.create_dataset("flexion_extension", data=np.arange(600, dtype=np.float32))
-                    targets.create_dataset("pronation", data=np.arange(600, dtype=np.float32))
+                    targets.create_dataset(
+                        "wrist_angles",
+                        data=np.stack(
+                            [np.arange(600, dtype=np.float32), np.arange(600, dtype=np.float32) + 1],
+                            axis=1,
+                        ),
+                    )
                 labels.create_dataset("source_json", data=json.dumps({"task_id": task}), dtype=h5py.string_dtype("utf-8"))
                 meta = h5.create_group("meta")
                 meta.create_dataset("source_json", data=json.dumps({"source": "canonical"}), dtype=h5py.string_dtype("utf-8"))
@@ -155,12 +162,13 @@ def gni_h5_by_task(tmp_path):
         source_path = tmp_path / f"{source_task}.h5"
         fields = [("emg", np.float32, (16,)), ("time", np.float64)]
         if source_task == "wrist":
-            fields.append(("flexion_extension", np.float32))
+            # 与真实 gni_wrist 发布一致：wrist_angles 为 (T, 2)。
+            fields.append(("wrist_angles", np.float32, (2,)))
         rows = np.zeros(4, dtype=np.dtype(fields))
         rows["emg"] = 3
         rows["time"] = np.arange(4) / 2000 + 30.0
         if source_task == "wrist":
-            rows["flexion_extension"] = np.arange(4, dtype=np.float32)
+            rows["wrist_angles"] = np.arange(8, dtype=np.float32).reshape(4, 2)
         with h5py.File(source_path, "w") as h5:
             data = h5.create_dataset("data", data=rows)
             data.attrs["task"] = source_task

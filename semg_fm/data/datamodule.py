@@ -223,12 +223,31 @@ class CanonicalDataModule(LightningDataModule):
         trainer = getattr(self, "trainer", None)
         return int(getattr(trainer, "current_epoch", 0))
 
+    def _limit_val_batches(self) -> int | None:
+        """Return the configured trainer validation-batch budget, if any.
+
+        Lightning reads this same attribute and truncates the validation loop
+        to the first N batches it yields, so the sampler must clamp and
+        interleave per task to keep that prefix spanning every task.
+        """
+        limit = getattr(getattr(self, "trainer", None), "limit_val_batches", None)
+        if limit is None or isinstance(limit, bool) or not isinstance(limit, (int, float)):
+            return None
+        if isinstance(limit, float):
+            return None  # fractional limits are handled by Lightning itself
+        return int(limit)
+
     def _evaluation_sampler_for(self, dataset) -> TaskEvaluationBatchSampler | None:
         if not len(dataset):
             return None
         rank, world_size = self._distributed_context()
+        # Lightning's per-rank budget truncates the sampler stream, so pass it
+        # through as the total budget: the sampler splits it across tasks and
+        # interleaves, keeping the truncation point balanced across tasks.
+        limit = self._limit_val_batches()
         return TaskEvaluationBatchSampler(
             dataset, self.batch_size, rank=rank, world_size=world_size,
+            batch_budget=limit,
         )
 
     def setup(self, stage: str | None = None) -> None:

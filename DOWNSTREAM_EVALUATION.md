@@ -55,10 +55,15 @@ python finetune.py task=pose finetune_mode=full label_budget=1.0 ...
 ## Evaluation and robustness
 
 ```bash
-python evaluate.py task=discrete_gesture checkpoint_path=outputs/<run>/checkpoints/last.ckpt \
+python evaluate.py task=discrete_gesture \
+  checkpoint_path="'/absolute/path/to/run/checkpoints/epoch=0-step=4.ckpt'" \
   robustness=channel_rotation robustness.shift=4 data.root=... data.manifest_path=... \
   save_predictions=true
 ```
+
+`checkpoint_path` must be absolute (Hydra chdirs into the run directory), and
+a checkpoint filename contains `=` (`epoch=<n>-step=<n>.ckpt`), so wrap the
+path in a second pair of quotes to keep Hydra from parsing it as an override.
 
 `configs/robustness/` provides in-memory, evaluation-only transforms that
 never modify HDF5 files:

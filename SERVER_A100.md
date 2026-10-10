@@ -62,25 +62,35 @@ No Slurm integration is required; launch from a plain shell on the node.
 ## Resume
 
 Checkpoints retain optimizer, scheduler, EMA teacher, and global step; resume
-with the same effective batch size as the original run. For deterministic
-continuation, use `last.ckpt` created after a completed epoch (an
-epoch-boundary checkpoint):
+with the same effective batch size as the original run (pass the same
+`trainer.devices`, `trainer.accumulate_grad_batches`, and `data.batch_size`
+as the launch command above). Pretraining runs one long step-based epoch
+(`max_epochs: -1`), so every `last.ckpt` is an in-epoch checkpoint:
 
 ```bash
 CANONICAL_META="/absolute/path/to/canonical_meta"
 RUN_DIR="/absolute/path/to/outputs/run"
-python pretrain.py trainer=a100_ddp \
+python pretrain.py trainer=a100_ddp trainer.devices=4 \
   data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
-  resume_from="${RUN_DIR}/checkpoints/last.ckpt"
-python finetune.py trainer=a100_ddp \
-  data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
+  data.batch_size=8 trainer.accumulate_grad_batches=2 \
   resume_from="${RUN_DIR}/checkpoints/last.ckpt"
 ```
 
-Generic PyTorch dataloaders cannot reproduce an arbitrary in-epoch position.
-If a run stops during an epoch, use the most recent completed epoch's
-`last.ckpt`; do not expect a mid-epoch resume to replay the interrupted
-position deterministically.
+Generic PyTorch dataloaders cannot reproduce an arbitrary in-epoch position,
+so a mid-run resume continues from the stored global step but does not replay
+the interrupted position deterministically. Deterministic continuation would
+require an epoch boundary, which a `max_steps` pretraining schedule never
+produces by design.
+
+To start a fine-tune from pretrained weights, do not pass the pretraining
+checkpoint to `resume_from` (it expects a fine-tuning checkpoint): use
+`pretrained_checkpoint`, which loads the backbone:
+
+```bash
+python finetune.py trainer=a100_ddp trainer.devices=4 task=pose \
+  data.root="${CANONICAL_META}" data.manifest_path="${CANONICAL_META}/splits.csv" \
+  pretrained_checkpoint="${RUN_DIR}/checkpoints/last.ckpt"
+```
 
 ## DDP smoke test (one batch)
 
@@ -90,10 +100,15 @@ Before long runs, verify NCCL across N devices:
 CANONICAL_META="/absolute/path/to/canonical_meta"
 RUN_DIR="/absolute/path/to/outputs/run"
 python run_baseline.py stage=pretrain model=bendr trainer=a100_ddp trainer.devices=4 \
-  trainer.fast_dev_run=true data.root="${CANONICAL_META}" \
+  +trainer.fast_dev_run=true data.root="${CANONICAL_META}" \
   data.manifest_path="${CANONICAL_META}/splits.csv" data.num_workers=4 \
   hydra.run.dir="${RUN_DIR}"
 ```
+
+`+trainer.fast_dev_run=true` needs the `+` because the a100_ddp trainer
+config does not declare that key and Hydra runs in struct mode. The default
+`use_distributed_sampler: false` in the same config keeps the rank-sharded
+batch samplers working under DDP; leave it in place.
 
 The test suite does not claim NCCL coverage; run this smoke on the server.
 

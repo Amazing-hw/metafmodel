@@ -322,6 +322,36 @@ def test_eval_loaders_cover_each_imbalanced_task_index_once_without_epoch_variat
         assert second_epoch == first_epoch
 
 
+def test_evaluation_sampler_budget_interleaves_tasks_round_robin():
+    """A total budget must truncate across tasks, not exhaust the first one.
+
+    Lightning's `limit_val_batches` takes the first N batches, so exhausting
+    task 'a' (alphabetically first) before 'b' would make the monitored
+    `val/loss` a single-task metric.
+    """
+
+    class TwoTaskDataset(Dataset):
+        def __init__(self):
+            self.items = [_item("a", 2) for _ in range(12)] + [_item("b", 2) for _ in range(4)]
+
+        def __len__(self):
+            return len(self.items)
+
+        def __getitem__(self, index):
+            return self.items[index]
+
+    dataset = TwoTaskDataset()
+
+    unbudgeted = TaskEvaluationBatchSampler(dataset, batch_size=2)
+    assert [dataset[batch[0]]["task_id"] for batch in unbudgeted] == ["a"] * 6 + ["b"] * 2
+
+    sampler = TaskEvaluationBatchSampler(dataset, batch_size=2, batch_budget=4)
+    tasks = [dataset[batch[0]]["task_id"] for batch in sampler]
+    # Budget 4 over 2 tasks: cap 2 per task, interleaved a,b,a,b.
+    assert tasks == ["a", "b", "a", "b"]
+    assert len(sampler) == len(tasks) == 4
+
+
 def test_distributed_evaluation_padding_keeps_rank_lengths_equal_and_marks_duplicates():
     class UnevenEvaluationDataset(Dataset):
         def __init__(self):

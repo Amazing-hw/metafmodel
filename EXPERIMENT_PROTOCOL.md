@@ -48,8 +48,11 @@ algorithmic channel-phase robustness, not physical re-wearing.
 - Quantized token prediction: `aemg`.
 
 The kinematic objective (`kinematic_dim`) and the `latent_weight` /
-`ring_weight` mix are constructor-level options of `PretrainModule`; report
-them in the configuration column when changed.
+`kinematic_weight` mix are constructor-level options of `PretrainModule`;
+report them in the configuration column when changed. The ring-equivariance
+term is a detached diagnostic only — it appears in metrics but never enters
+the optimized loss, and the `ring_weight` attribute does not scale it (pinned
+by `tests/test_pretrain_module.py`).
 
 ## Reporting checklist
 

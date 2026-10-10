@@ -119,3 +119,9 @@ Per run (`outputs/<date>/<time>/`): `resolved_config.yaml`, `manifest.json`
 configs, effective global batch = `batch_size × devices ×
 accumulate_grad_batches`, environment), `checkpoints/` (`last.ckpt` plus the
 best `val/loss` checkpoint), and TensorBoard logs under `lightning_logs/`.
+
+Validation honours `limit_val_batches` as a per-task-divided budget: the
+evaluation sampler clamps each task to its share and interleaves tasks, so
+the monitored `val/loss` — and therefore the best-checkpoint selection —
+spans every task in the corpus instead of only the first one. Per-task
+losses are logged as `val/<task>_loss` alongside the aggregate `val/loss`.

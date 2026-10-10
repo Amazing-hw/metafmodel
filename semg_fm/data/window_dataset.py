@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 from typing import Any
+import warnings
 
 import h5py
 import numpy as np
@@ -175,6 +176,7 @@ class CanonicalWindowDataset(Dataset):
         if task_id is not None and task_id not in set(frame["task_id"].astype(str)):
             raise ValueError(f"no manifest records have task_id {task_id!r}")
         records = []
+        skipped_unassigned = 0
         for _, row in frame.iterrows():
             # Prefer a non-empty official split; fall back to the deterministic
             # `split` column written by `make_splits`, so its output CSV can be
@@ -186,6 +188,9 @@ class CanonicalWindowDataset(Dataset):
                 row_split = _text(row["split"]).strip()
             else:
                 row_split = ""
+            if row_split not in OFFICIAL_SPLITS:
+                skipped_unassigned += 1
+                continue
             if row_split != split:
                 continue
             if task_id is not None and _text(row["task_id"]) != task_id:
@@ -222,6 +227,17 @@ class CanonicalWindowDataset(Dataset):
                     "pass its output as the manifest, or convert a corpus that ships "
                     "official splits."
                 )
+        elif skipped_unassigned:
+            # Partially assigned manifests (e.g. an unmodified converter output
+            # whose 'unknown' rows were never split) would otherwise train on a
+            # silent subset of the corpus.
+            warnings.warn(
+                f"{manifest_path}: skipped {skipped_unassigned} record(s) with no "
+                f"'{split}' split assignment (official_split empty/'unknown' and no "
+                "'split' column value). Run make_splits.py on the manifest to assign "
+                "them; without it they are excluded from training.",
+                stacklevel=2,
+            )
         return cls(records, window_ms, stride_ms)
 
     def apply_label_budget(self, budget: float, seed: int) -> None:

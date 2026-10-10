@@ -96,7 +96,8 @@ python -m pytest tests -q
 ```bash
 # 0. 定义 canonical 数据根目录的绝对路径（Hydra 训练会把工作目录切到运行
 #    目录，因此 data.root / data.manifest_path 必须使用绝对路径）。
-CANONICAL_META="$PWD/emg_data_canonical"
+#    Git Bash 下 $(pwd -W) 输出 Windows 形式（D:/...），Python 可直接使用。
+CANONICAL_META="$(pwd -W)/emg_data_canonical"
 
 # 1. 为没有官方划分的记录分配确定性划分（官方划分原样保留）。
 python make_splits.py --manifest "$CANONICAL_META/manifest.csv" --root "$CANONICAL_META" --output "$CANONICAL_META/splits.csv" --seed 0
@@ -104,14 +105,20 @@ python make_splits.py --manifest "$CANONICAL_META/manifest.csv" --root "$CANONIC
 # 2. 一步预训练（fast_dev_run）。数据路径绝对，运行目录相对即可。
 python pretrain.py trainer=cpu_smoke data.root="$CANONICAL_META" data.manifest_path="$CANONICAL_META/splits.csv" hydra.run.dir=runs/pretrain-smoke
 
-# 3. 微调一个 epoch 并存检查点，然后评测。
-python finetune.py trainer=a100_ddp trainer.accelerator=cpu trainer.devices=1 trainer.max_epochs=1 \
-  task=pose data.root="$CANONICAL_META" data.manifest_path="$CANONICAL_META/splits.csv" hydra.run.dir=runs/finetune-smoke
-python evaluate.py trainer=cpu_smoke task=pose checkpoint_path=runs/finetune-smoke/checkpoints/last.ckpt \
-  data.root="$CANONICAL_META" data.manifest_path="$CANONICAL_META/splits.csv" hydra.run.dir=runs/evaluate-smoke
+# 3. 微调几步并评测（cpu_smoke 未定义的键用 + 前缀追加；换任务只需改 task=）。
+python finetune.py trainer=cpu_smoke trainer.fast_dev_run=false +trainer.max_epochs=1 \
+  +trainer.limit_train_batches=4 +trainer.limit_val_batches=2 +trainer.enable_checkpointing=true \
+  task=pose data.root="$CANONICAL_META" data.manifest_path="$CANONICAL_META/splits.csv" \
+  data.num_workers=0 hydra.run.dir=runs/finetune-smoke
+# 找到刚写出的检查点（cpu_smoke 没有 save_last，文件名形如 epoch=0-step=4.ckpt），
+# 必须使用绝对路径；文件名含 '=' 时要再包一层引号，避免被 Hydra 解析为 override。
+CKPT="$(pwd -W)/runs/finetune-smoke/lightning_logs/version_0/checkpoints/epoch=0-step=4.ckpt"
+python evaluate.py trainer=cpu_smoke task=pose checkpoint_path="'$CKPT'" \
+  data.root="$CANONICAL_META" data.manifest_path="$CANONICAL_META/splits.csv" \
+  data.num_workers=0 hydra.run.dir=runs/evaluate-smoke
 ```
 
 Windows PowerShell 对应写法：`$CanonicalMeta = (Get-Location).Path + '\emg_data_canonical'`。只要数据路径为绝对路径，仓库克隆到任意目录都可直接运行。
 
-每次运行都会把解析后的配置、manifest 摘要、环境快照、指标和检查点写入 `outputs/<date>/<time>/`。完整文档见 `PRETRAINING.md`、`DOWNSTREAM_EVALUATION.md`、`BASELINES.md`、`EXPERIMENT_PROTOCOL.md`、`H5_DATA_CONTRACT.md` 和 `SERVER_A100.md`。
+每次运行都会把解析后的配置、manifest 摘要、环境快照、检查点写入 `hydra.run.dir` 指定的目录（`outputs/<date>/<time>/` 只是未显式指定时的默认值）；评估还会额外写出 `metrics.json`、`per_subject_metrics.csv` 和 `split_manifest.csv`。完整文档见 `PRETRAINING.md`、`DOWNSTREAM_EVALUATION.md`、`BASELINES.md`、`EXPERIMENT_PROTOCOL.md`、`H5_DATA_CONTRACT.md` 和 `SERVER_A100.md`。
 

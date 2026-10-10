@@ -131,17 +131,43 @@ class TaskBalancedBatchSampler(Sampler[list[int]]):
 
 
 class TaskEvaluationBatchSampler(Sampler[list[int]]):
-    """Yield every evaluation index exactly once, while keeping each batch task-homogeneous."""
+    """Yield every evaluation index exactly once, while keeping each batch task-homogeneous.
 
-    def __init__(self, dataset, batch_size: int, *, rank: int = 0, world_size: int = 1) -> None:
+    With ``batch_budget`` set, the total yielded count is clamped to the
+    budget (divided evenly across tasks, at least one batch per task) and
+    tasks are interleaved round-robin instead of being exhausted in turn.
+    This keeps a Lightning ``limit_val_batches`` prefix spanning every task:
+    exhausting the alphabetically first task first would otherwise make the
+    monitored ``val/loss`` a single-task metric.
+    """
+
+    def __init__(
+        self,
+        dataset,
+        batch_size: int,
+        *,
+        rank: int = 0,
+        world_size: int = 1,
+        batch_budget: int | None = None,
+    ) -> None:
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
         if world_size <= 0 or not 0 <= rank < world_size:
             raise ValueError("rank must be in [0, world_size)")
+        if batch_budget is not None and batch_budget <= 0:
+            raise ValueError("batch_budget must be positive")
         self.batch_size = int(batch_size)
         self.rank = int(rank)
         self.world_size = int(world_size)
+        self.batch_budget = batch_budget
         self._groups = _task_groups(dataset)
+
+    @property
+    def per_task_cap(self) -> int | None:
+        """Per-task batch cap implied by the total budget, or None."""
+        if self.batch_budget is None:
+            return None
+        return max(1, self.batch_budget // max(1, len(self._groups)))
 
     def _task_batch(self, indices: np.ndarray, offset: int) -> np.ndarray:
         return indices[offset * self.batch_size : (offset + 1) * self.batch_size]
@@ -149,29 +175,46 @@ class TaskEvaluationBatchSampler(Sampler[list[int]]):
     def _batch_counts(self, indices: np.ndarray) -> tuple[int, int]:
         """Return (actual, assigned) batch counts for one task on this rank."""
         actual = (len(indices) + self.batch_size - 1) // self.batch_size
+        cap = self.per_task_cap
+        if cap is not None:
+            actual = min(actual, cap)
         return actual, actual + (-actual) % self.world_size
 
-    def _batches(self) -> Iterator[list[int]]:
-        # Batches are produced as they are consumed: the test splits of the
-        # converted corpus still hold millions of windows, and a list of every
-        # batch would hold them all at once.
+    def _task_batches(self) -> list[list[list[int]]]:
+        batches = []
         for indices in self._groups.values():
             actual, assigned = self._batch_counts(indices)
+            task_batches = []
             for batch_index in range(self.rank, assigned, self.world_size):
                 is_padding = batch_index >= actual
                 # A padded duplicate repeats an existing batch, so every rank
                 # sees the same number of batches without inventing windows.
                 source = batch_index % actual if is_padding else batch_index
-                yield [
+                task_batches.append([
                     EvaluationIndex(int(index), is_padding)
                     for index in self._task_batch(indices, source)
-                ]
+                ])
+            batches.append(task_batches)
+        return batches
+
+    def _batches(self) -> Iterator[list[int]]:
+        # Batches are produced as they are consumed: the test splits of the
+        # converted corpus still hold millions of windows, and a list of every
+        # batch would hold them all at once.
+        per_task = self._task_batches()
+        if self.batch_budget is None:
+            for task_batches in per_task:
+                yield from task_batches
+            return
+        # Round-robin so an outer batch limit (Lightning's `limit_val_batches`)
+        # truncates evenly across tasks instead of cutting before later tasks.
+        for column in range(max((len(b) for b in per_task), default=0)):
+            for task_batches in per_task:
+                if column < len(task_batches):
+                    yield task_batches[column]
 
     def __iter__(self) -> Iterator[list[int]]:
         yield from self._batches()
 
     def __len__(self) -> int:
-        return sum(
-            len(range(self.rank, assigned, self.world_size))
-            for assigned in (self._batch_counts(indices)[1] for indices in self._groups.values())
-        )
+        return sum(len(task_batches) for task_batches in self._task_batches())

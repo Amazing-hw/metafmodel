@@ -37,7 +37,7 @@ CONVERTER_CASES = [
         "convert_gni_wrist.py",
         "wrist_angle",
         "wrist_angle",
-        "labels/targets/flexion_extension",
+        "labels/targets/wrist_angles",
     ),
 ]
 
@@ -117,7 +117,7 @@ def test_emg2qwerty_emits_one_linked_record_per_wrist(tmp_path, qwerty_h5):
     [
         ("convert_gni_discrete_gestures.py", "discrete_gesture", "labels/events"),
         ("convert_gni_handwriting.py", "handwriting", "labels/prompts"),
-        ("convert_gni_wrist.py", "wrist_angle", "labels/targets/flexion_extension"),
+        ("convert_gni_wrist.py", "wrist_angle", "labels/targets/wrist_angles"),
     ],
 )
 def test_gni_converter_preserves_16ch_stream_and_labels(
