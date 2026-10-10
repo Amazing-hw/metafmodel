@@ -2,10 +2,21 @@
 
 本仓库把 5 个公开的 Meta/CTRL-labs 16 通道腕部 sEMG 语料转换为统一的单腕 HDF5 契约。这些转换器刻意**不是**生理信号预处理流水线：不做通道重排、滤波、缩放、极性校正、截断或重采样。唯一的表示变更，是把 `time_s` 存为相对首个样本的时间；源路径和预处理记录都保留在每份输出中。
 
+## 上手流程
+
+从零开始跑通整个仓库，依次执行四步；每步命令都可在任意目录（不限于 `D:\Fmodel`）中照抄：
+
+1. **获取原始数据**：按各语料官方发布说明下载 emg2pose、emg2qwerty、GNI 三个语料（许可均为 CC BY-NC-SA / CC BY-NC，禁止再分发）。语料清单与规模见 [`meta_semg_16ch_datasets.md`](meta_semg_16ch_datasets.md)。
+2. **转换**：安装依赖后运行 [`semg_h5/`](semg_h5) 下 5 个独立转换器，产出统一的 canonical H5 与 `manifest.csv`（见[转换各个语料](#转换各个语料)与 [`H5_DATA_CONTRACT.md`](H5_DATA_CONTRACT.md)）。
+3. **生成划分**：用 `make_splits.py` 为没有官方划分的记录分配确定性 train/val/test 划分，官方划分原样保留。
+4. **训练与评测**：`pretrain.py` 自监督预训练 → `finetune.py` 逐任务微调 → `evaluate.py` 留存集评测 → `run_baseline.py` 对比基线。先跑[五分钟 CPU 冒烟](#五分钟-cpu-冒烟)验证环境，正式训练上 A100 见 [`SERVER_A100.md`](SERVER_A100.md) 与 [`EXPERIMENT_PROTOCOL.md`](EXPERIMENT_PROTOCOL.md)。
+
 ## 安装
 
+转换器只用 Python 标准库；执行转换还需要 h5py/pandas/tables，安装训练依赖时一并包含：
+
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-train.txt
 ```
 
 ## 转换各个语料
@@ -13,11 +24,13 @@ python -m pip install -r requirements.txt
 运行每条命令时，工作目录中应只包含对应语料的原始 H5 文件。输出根目录要与原始输入目录分开。
 
 ```bash
-python semg_h5\convert_emg2pose.py --input-root RAW_EMG2POSE --output-root CANONICAL_META
-python semg_h5\convert_emg2qwerty.py --input-root RAW_EMG2QWERTY --output-root CANONICAL_META
-python semg_h5\convert_gni_discrete_gestures.py --input-root RAW_GNI_DISCRETE --output-root CANONICAL_META
-python semg_h5\convert_gni_handwriting.py --input-root RAW_GNI_HANDWRITING --output-root CANONICAL_META
-python semg_h5\convert_gni_wrist.py --input-root RAW_GNI_WRIST --output-root CANONICAL_META
+# 在仓库根目录执行；RAW_* 为各语料原始 H5 所在目录（见各语料官方发布说明），
+# CANONICAL_META 为输出根目录（与新数据分开）。下列路径按需替换。
+python semg_h5/convert_emg2pose.py --input-root RAW_EMG2POSE --output-root CANONICAL_META
+python semg_h5/convert_emg2qwerty.py --input-root RAW_EMG2QWERTY --output-root CANONICAL_META
+python semg_h5/convert_gni_discrete_gestures.py --input-root RAW_GNI_DISCRETE --output-root CANONICAL_META
+python semg_h5/convert_gni_handwriting.py --input-root RAW_GNI_HANDWRITING --output-root CANONICAL_META
+python semg_h5/convert_gni_wrist.py --input-root RAW_GNI_WRIST --output-root CANONICAL_META
 ```
 
 每个独立转换器在写出结果前，都会校验源数据的目录布局、16 通道信号形状、样本时间戳以及任务专属标签；不需要额外的校验命令。若某语料提供官方划分 CSV，可用 `--splits-csv SPLITS.csv` 传入；该 CSV 必须包含 `split` 列，以及 `path`、`source_file`、`file` 三者之一。其中的路径相对于 `--input-root`（也可以直接是裸文件名）。`--split train` 会在转换前做过滤。不要生成随机的窗口级划分：下游评测必须保留官方的 session/参与者划分。默认拒绝覆盖已存在的输出 H5 文件；只有在确实要重新生成时才传 `--overwrite`。
@@ -78,21 +91,27 @@ python -m pytest tests -q
 
 ### 五分钟 CPU 冒烟
 
-转换完数据后（或已有任意 canonical `manifest.csv`）：
+转换完数据后（或已有任意 canonical `manifest.csv`）。在仓库根目录执行：
 
 ```bash
-# 1. 为没有官方划分的记录分配确定性划分。
-python make_splits.py --manifest CANONICAL_META/manifest.csv --root CANONICAL_META --output CANONICAL_META/splits.csv --seed 0
+# 0. 定义 canonical 数据根目录的绝对路径（Hydra 训练会把工作目录切到运行
+#    目录，因此 data.root / data.manifest_path 必须使用绝对路径）。
+CANONICAL_META="$PWD/emg_data_canonical"
 
-# 2. 一步预训练（fast_dev_run）。路径必须为绝对路径。
-python pretrain.py trainer=cpu_smoke data.root=CANONICAL_META data.manifest_path=CANONICAL_META/splits.csv
+# 1. 为没有官方划分的记录分配确定性划分（官方划分原样保留）。
+python make_splits.py --manifest "$CANONICAL_META/manifest.csv" --root "$CANONICAL_META" --output "$CANONICAL_META/splits.csv" --seed 0
+
+# 2. 一步预训练（fast_dev_run）。数据路径绝对，运行目录相对即可。
+python pretrain.py trainer=cpu_smoke data.root="$CANONICAL_META" data.manifest_path="$CANONICAL_META/splits.csv" hydra.run.dir=runs/pretrain-smoke
 
 # 3. 微调一个 epoch 并存检查点，然后评测。
 python finetune.py trainer=a100_ddp trainer.accelerator=cpu trainer.devices=1 trainer.max_epochs=1 \
-  task=pose data.root=CANONICAL_META data.manifest_path=CANONICAL_META/splits.csv
-python evaluate.py trainer=cpu_smoke task=pose checkpoint_path=outputs/<run>/checkpoints/last.ckpt \
-  data.root=CANONICAL_META data.manifest_path=CANONICAL_META/splits.csv
+  task=pose data.root="$CANONICAL_META" data.manifest_path="$CANONICAL_META/splits.csv" hydra.run.dir=runs/finetune-smoke
+python evaluate.py trainer=cpu_smoke task=pose checkpoint_path=runs/finetune-smoke/checkpoints/last.ckpt \
+  data.root="$CANONICAL_META" data.manifest_path="$CANONICAL_META/splits.csv" hydra.run.dir=runs/evaluate-smoke
 ```
+
+Windows PowerShell 对应写法：`$CanonicalMeta = (Get-Location).Path + '\emg_data_canonical'`。只要数据路径为绝对路径，仓库克隆到任意目录都可直接运行。
 
 每次运行都会把解析后的配置、manifest 摘要、环境快照、指标和检查点写入 `outputs/<date>/<time>/`。完整文档见 `PRETRAINING.md`、`DOWNSTREAM_EVALUATION.md`、`BASELINES.md`、`EXPERIMENT_PROTOCOL.md`、`H5_DATA_CONTRACT.md` 和 `SERVER_A100.md`。
 

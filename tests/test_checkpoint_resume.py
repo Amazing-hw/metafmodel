@@ -35,7 +35,8 @@ def _trainer(**overrides):
         devices=1,
         logger=False,
         callbacks=[],
-        enable_checkpointing=True,
+        # 测试手动 save_checkpoint/ckpt_path；默认回调会往仓库根写 checkpoints/。
+        enable_checkpointing=False,
         enable_model_summary=False,
         enable_progress_bar=False,
         **overrides,
