@@ -46,7 +46,7 @@ timestamp.
 | task_id | required |
 |---|---|
 | `pose` | `/labels/joint_angles` float `[T, D]`; optional `/labels/no_ik_failure` bool `[T]` |
-| `wrist_angle` | one or more float `[T]` arrays under `/labels/targets` |
+| `wrist_angle` | one or more float `[T]` or `[T, D]` arrays under `/labels/targets` (the GNI release ships a single `wrist_angles` target of shape `[T, 2]`) |
 | `discrete_gesture` | `/labels/events` structured `(name: str, time_s: f64)` |
 | `handwriting` | `/labels/prompts` structured `(text: str, start_s: f64, end_s: f64)` |
 | `typing` | `/labels/keystrokes` `(key, press_s, release_s)` and `/labels/prompts` `(text, start_s, end_s)` |
